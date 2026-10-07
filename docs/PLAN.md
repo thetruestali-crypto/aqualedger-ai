@@ -59,11 +59,20 @@ missing `GEMINI_MODEL/PORT/NODE_ENV/DISABLE_HMR` · scripts missing `test`, `tes
   Dexie paths covered by interface-level tests via memory store); App cutover from
   localStorage to Dexie happens in Phase 3
 
-## Phase 3 — State + app shell
+## Phase 3 — State + app shell (DONE 2026-10-07)
 
-- [ ] Context + useReducer (+ selectors), `useMemo` summaries, debounced IndexedDB writes
-- [ ] Bottom tabs (Dashboard, Company, Clients, Inventory, Settings) + quick-entry mic button
-- [ ] Navbar live boss balance; dashboard KPIs; empty states; Persian error toasts; confirm dialogs
+- [x] Pure `transitions.ts` (all AppState changes testable; client auto-create/update,
+  clamped debt settlement + settlement tx, backup replace); `selectors.ts` memoized
+  in the provider (`useMemo` summaries/reminders/low-stock — no more compute-on-render)
+- [x] `AppStoreProvider`: async Dexie boot + one-time legacy migration, debounced
+  (500ms) snapshot persistence via `importBackup`, loading splash, local-driver
+  fallback when IndexedDB is unavailable; App rewritten thin on the store
+- [x] Mobile bottom tab bar (5 tabs + raised mic FAB; desktop keeps top tabs),
+  Persian toast stack (success/error/info), confirm dialogs on destructive actions
+- [x] Gate: `lint` ✅ `test` (63 unit) ✅ `build` (+SW) ✅ + real-Chromium smoke E2E:
+  boot → Dexie migration marker → dashboard + bottom nav, zero console errors ✅
+- [ ] Deferred (honest): full happy-path E2E (type→preview→confirm→balance→reload)
+  is Phase 8; service-worker offline behavior is Phase 7
 
 ## Phase 4 — Ledgers + inventory + reminders (FR-03..FR-09)
 

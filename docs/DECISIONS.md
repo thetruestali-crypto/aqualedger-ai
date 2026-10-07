@@ -41,3 +41,10 @@
 - **D11. Bare paid/debt numbers live in the fallback, not the extractor:** `extractTomanAmounts`
   requires a money marker (so `۳ فیلتر` never becomes money). Repeats without a marker
   (`۳۵۰ نقد داد`) are resolved by keyword-anchored regexes in `fallbackAnalyzeTransaction`.
+- **D12. Persistence = debounced whole-snapshot `importBackup` (500ms):** instead of
+  per-entity upserts, every committed reducer state is written back in one Dexie
+  rw-transaction. Simple, consistent, and fast enough at this scale (hundreds of rows).
+- **D13. Boot never fails:** `bootStore()` tries Dexie (migrate + probe) and falls back to
+  the localStorage driver on ANY error; the UI shows a splash, then toasts problems in
+  Persian instead of a blank screen. Verified by a real-Chromium E2E (migration marker
+  + `aqualedger` IndexedDB present, zero console errors).

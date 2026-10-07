@@ -1,78 +1,164 @@
-// App state: Context + useReducer (replaces props-drilling in App.tsx).
-// Derived summaries are memoized; persistence is debounced into IndexedDB.
-// NOTE (Phase 1): scaffold only — wiring into <App/> happens in Phase 3.
-import React, { createContext, useContext, useMemo, useReducer } from 'react';
-import type { Transaction, CompanySettings, Client, PartItem } from '../types';
-import { computeFinancialSummary, type FinancialSummary } from '../domain/financialEngine';
+// App store: Context + useReducer over pure transitions (transitions.ts),
+// memoized derived data (selectors.ts), async Dexie boot with one-time legacy
+// migration (data/boot.ts), and debounced persistence back to the driver.
+// UI components consume useAppStore() — no props drilling.
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
+import type { BackupPayload } from '../data/db';
+import type { LedgerStore } from '../data/repository';
+import { bootStore } from '../data/boot';
+import { applyAction, type AppAction, type AppState } from './transitions';
+import {
+  selectSummary,
+  selectReminders,
+  selectLowStock,
+  type ReminderLists,
+} from './selectors';
+import type { FinancialSummary } from '../domain/financialEngine';
+import type { PartItem } from '../types';
 
-export interface AppState {
-  transactions: Transaction[];
-  settings: CompanySettings;
-  clients: Client[];
-  parts: PartItem[];
-}
+export const PERSIST_DEBOUNCE_MS = 500;
 
-export type AppAction =
-  | { type: 'ADD_TRANSACTION'; tx: Transaction }
-  | { type: 'DELETE_TRANSACTION'; id: string }
-  | { type: 'SAVE_SETTINGS'; settings: CompanySettings }
-  | { type: 'ADD_CLIENT'; client: Client }
-  | { type: 'UPDATE_CLIENT'; client: Client }
-  | { type: 'ADD_PART'; part: PartItem }
-  | { type: 'UPDATE_PART'; part: PartItem }
-  | { type: 'DELETE_PART'; id: string }
-  | { type: 'HYDRATE'; state: AppState };
-
-export function appReducer(state: AppState, action: AppAction): AppState {
-  switch (action.type) {
-    case 'ADD_TRANSACTION':
-      return { ...state, transactions: [action.tx, ...state.transactions] };
-    case 'DELETE_TRANSACTION':
-      return { ...state, transactions: state.transactions.filter((t) => t.id !== action.id) };
-    case 'SAVE_SETTINGS':
-      return { ...state, settings: action.settings };
-    case 'ADD_CLIENT':
-      return { ...state, clients: [action.client, ...state.clients] };
-    case 'UPDATE_CLIENT':
-      return {
-        ...state,
-        clients: state.clients.map((c) => (c.id === action.client.id ? action.client : c)),
-      };
-    case 'ADD_PART':
-      return { ...state, parts: [action.part, ...state.parts] };
-    case 'UPDATE_PART':
-      return {
-        ...state,
-        parts: state.parts.map((p) => (p.id === action.part.id ? action.part : p)),
-      };
-    case 'DELETE_PART':
-      return { ...state, parts: state.parts.filter((p) => p.id !== action.id) };
-    case 'HYDRATE':
-      return action.state;
-  }
-}
+const EMPTY_STATE: AppState = {
+  transactions: [],
+  settings: {
+    companyName: '',
+    bossName: '',
+    bossPhone: '',
+    monthlyBaseSalary: 0,
+    salaryPaymentDay: 25,
+    overtimeHourlyRate: 0,
+    insuranceDeduction: 0,
+    autoAccrueSalary: false,
+  },
+  clients: [],
+  parts: [],
+  serviceLogs: [],
+};
 
 interface StoreContextValue {
   state: AppState;
   dispatch: React.Dispatch<AppAction>;
   summary: FinancialSummary;
+  reminders: ReminderLists;
+  lowStock: PartItem[];
+  ready: boolean;
+  driver: 'dexie' | 'local' | null;
+  bootFailed: boolean;
+  persistError: string | null;
+  /** Re-read everything from the driver (used after reset-to-seed). */
+  reload: () => Promise<void>;
+  /** Direct driver access for backup export / seed reset. */
+  driverRef: React.MutableRefObject<LedgerStore | null>;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
-export function AppStoreProvider({
-  initial,
-  children,
-}: {
-  initial: AppState;
-  children: React.ReactNode;
-}) {
-  const [state, dispatch] = useReducer(appReducer, initial);
+function snapshotOf(state: AppState): Omit<BackupPayload, 'version' | 'exportedAt'> {
+  return {
+    transactions: state.transactions,
+    clients: state.clients,
+    parts: state.parts,
+    serviceLogs: state.serviceLogs,
+    settings: state.settings,
+  };
+}
+
+export function AppStoreProvider({ children }: { children: React.ReactNode }) {
+  const [state, dispatch] = useReducer(applyAction, EMPTY_STATE);
+  const [ready, setReady] = useState(false);
+  const [driverName, setDriverName] = useState<'dexie' | 'local' | null>(null);
+  const [bootFailed, setBootFailed] = useState(false);
+  const [persistError, setPersistError] = useState<string | null>(null);
+  const driverRef = useRef<LedgerStore | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readyRef = useRef(false);
+
+  const reload = useCallback(async () => {
+    const driver = driverRef.current;
+    if (!driver) return;
+    const [transactions, clients, parts, serviceLogs, settings] = await Promise.all([
+      driver.getTransactions(),
+      driver.getClients(),
+      driver.getParts(),
+      driver.getServiceLogs(),
+      driver.getSettings(),
+    ]);
+    dispatch({ type: 'HYDRATE', state: { transactions, clients, parts, serviceLogs, settings } });
+  }, []);
+
+  // Boot once: pick driver, migrate legacy data, hydrate.
+  useEffect(() => {
+    let cancelled = false;
+    bootStore()
+      .then(async ({ store, driver }) => {
+        if (cancelled) return;
+        driverRef.current = store;
+        setDriverName(driver);
+        await reload();
+        if (cancelled) return;
+        readyRef.current = true;
+        setReady(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBootFailed(true);
+        setReady(true); // show the app anyway (empty state, local driver failed too)
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reload]);
+
+  // Debounced persistence: every committed state is written back whole.
+  useEffect(() => {
+    if (!readyRef.current || !driverRef.current) return;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    const snap = snapshotOf(state);
+    timerRef.current = setTimeout(() => {
+      driverRef.current
+        ?.importBackup({ version: 1, exportedAt: new Date().toISOString(), ...snap })
+        .then(() => setPersistError(null))
+        .catch(() =>
+          setPersistError('خطا در ذخیره‌سازی محلی. داده‌ها فقط در حافظه موقت هستند.'),
+        );
+    }, PERSIST_DEBOUNCE_MS);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [state]);
+
   const summary = useMemo(
-    () => computeFinancialSummary(state.transactions, state.settings, state.clients),
+    () => selectSummary(state),
     [state.transactions, state.settings, state.clients],
   );
-  const value = useMemo(() => ({ state, dispatch, summary }), [state, dispatch, summary]);
+  const reminders = useMemo(() => selectReminders(state), [state.clients]);
+  const lowStock = useMemo(() => selectLowStock(state), [state.parts]);
+
+  const value = useMemo<StoreContextValue>(
+    () => ({
+      state,
+      dispatch,
+      summary,
+      reminders,
+      lowStock,
+      ready,
+      driver: driverName,
+      bootFailed,
+      persistError,
+      reload,
+      driverRef,
+    }),
+    [state, dispatch, summary, reminders, lowStock, ready, driverName, bootFailed, persistError, reload],
+  );
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 
