@@ -1,0 +1,7 @@
+{
+  "name": "AquaLedger AI - دستیار هوشمند مالی تکنسین",
+  "description": "سیستم جامع حسابداری هوشمند و مدیریت دوگانه شرکتی و میدانی ویژه تکنسین‌ها و خدمات تصفیه آب با هوش مصنوعی جمینای",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
