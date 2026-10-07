@@ -9,7 +9,7 @@ import { SettingsView } from './components/SettingsView';
 import { InvoiceExportModal } from './components/InvoiceExportModal';
 import { UserGuideModal } from './components/UserGuideModal';
 
-import { Transaction, CompanySettings, Client, PartItem } from './types';
+import { Transaction, CompanySettings, Client, PartItem, ServiceLog } from './types';
 import {
   loadTransactions,
   saveTransactions,
@@ -19,9 +19,13 @@ import {
   saveClients,
   loadParts,
   saveParts,
+  loadServiceLogs,
+  saveServiceLogs,
   resetToDemoData,
 } from './utils/storage';
 import { computeFinancialSummary } from './utils/financialEngine';
+import { validateBackupPayload, serializeBackup, backupFileName } from './data/backup';
+import type { BackupPayload } from './data/db';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -29,6 +33,7 @@ export default function App() {
   const [settings, setSettings] = useState<CompanySettings>(loadSettings);
   const [clients, setClients] = useState<Client[]>(loadClients);
   const [parts, setParts] = useState<PartItem[]>(loadParts);
+  const [serviceLogs, setServiceLogs] = useState<ServiceLog[]>(loadServiceLogs);
 
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
@@ -163,6 +168,7 @@ export default function App() {
       description: `تسویه مبلغ بدهی توسط ${target.name}`,
       conversationalSummary: `دریافت ${amount.toLocaleString('fa-IR')} تومان بابت تسویه بدهی ${target.name} ثبت شد.`,
       source: 'manual',
+      settled: true,
     };
     const updatedTxList = [settleTx, ...transactions];
     setTransactions(updatedTxList);
@@ -195,6 +201,39 @@ export default function App() {
     setSettings(loadSettings());
     setClients(loadClients());
     setParts(loadParts());
+    setServiceLogs(loadServiceLogs());
+  };
+
+  // Full backup export (Settings view downloads the serialized payload).
+  const handleExportBackup = (): { fileName: string; json: string } => {
+    const payload: BackupPayload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      transactions,
+      clients,
+      parts,
+      serviceLogs,
+      settings,
+    };
+    return { fileName: backupFileName(), json: serializeBackup(payload) };
+  };
+
+  // Full backup import: validated with zod BEFORE touching any state.
+  const handleImportBackup = (raw: unknown): { ok: boolean; errors: string[] } => {
+    const check = validateBackupPayload(raw);
+    if (!check.ok || !check.payload) return { ok: false, errors: check.errors };
+    const b = check.payload;
+    setTransactions(b.transactions);
+    saveTransactions(b.transactions);
+    setClients(b.clients);
+    saveClients(b.clients);
+    setParts(b.parts);
+    saveParts(b.parts);
+    setServiceLogs(b.serviceLogs);
+    saveServiceLogs(b.serviceLogs);
+    setSettings(b.settings);
+    saveSettings(b.settings);
+    return { ok: true, errors: [] };
   };
 
   return (
@@ -264,6 +303,8 @@ export default function App() {
             settings={settings}
             onSaveSettings={handleSaveSettings}
             onResetDemo={handleResetDemo}
+            onExportBackup={handleExportBackup}
+            onImportBackup={handleImportBackup}
           />
         )}
       </main>

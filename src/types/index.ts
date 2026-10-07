@@ -46,11 +46,13 @@ export interface Transaction {
   financialImpact: FinancialImpact;
   paymentMethod: PaymentMethod;
   category: string;
-  items?: TransactionItem[];
+  items?: TransactionItem[];     // قطعات فاکتور
   suggestNextServiceMonths?: number;
   description: string;
   conversationalSummary: string;
   source: 'ai_voice' | 'ai_text' | 'manual';
+  /** Fully settled invoice (no remaining debt and no dispute). Defaults false for legacy rows. */
+  settled: boolean;
 }
 
 export interface CompanySettings {
@@ -91,6 +93,8 @@ export interface PartItem {
   purchasePrice: number; // قیمت خرید همکار (تومان)
   sellPrice: number;     // قیمت فروش به مشتری (تومان)
   category: 'filter' | 'membrane' | 'pump' | 'switch' | 'housing' | 'fitting' | 'tool';
+  /** Alert threshold (inclusive). Defaults to 3 when absent. */
+  lowStockThreshold?: number;
 }
 
 export interface AIAnalysisResult {
@@ -108,4 +112,26 @@ export interface AIAnalysisResult {
   suggestNextServiceMonths?: number;
   description: string;
   conversationalSummary: string;
+  /** Model self-reported confidence (0..1). Fallback parser reports ~0.55. */
+  confidence?: number;
+  /** Human-readable warnings (e.g. suspicious amounts). Always shown in preview. */
+  warnings?: string[];
+}
+
+export interface ServiceLogItem {
+  partId?: string;
+  name: string;
+  qty: number;
+  sellPrice: number; // به تومان (فاکتور به مشتری)
+  buyPrice: number;  // به تومان (قیمت خرید انبار)
+}
+
+export interface ServiceLog {
+  id: string;
+  clientId: string;
+  date: string; // ISO
+  items: ServiceLogItem[];
+  laborFee: number; // اجرت فنی، جدا از سود قطعه (FR-08)
+  nextServiceDueDate: string; // ISO
+  notes?: string;
 }

@@ -39,15 +39,25 @@ missing `GEMINI_MODEL/PORT/NODE_ENV/DISABLE_HMR` · scripts missing `test`, `tes
   Gate verified: `lint` ✅ `test` (27/27) ✅ `build` (+SW) ✅; server smoke-tested
   (`/api/health`, fallback analysis without key, audio validation).
 
-## Phase 2 — Domain + data
+## Phase 2 — Domain + data (DONE 2026-10-07)
 
-- [ ] Types/zod: Settings (overtime/absence/commission/settlement-day), Transaction (settled flag),
-  Client, Part, ServiceLog, AIAnalysisResult (+confidence, warnings[])
-- [ ] Dexie v1 schema + migrations + repository interface + localStorage one-time import
-- [ ] Seed/demo data + JSON export/import (full backup) in Settings
-- [ ] Pure engines + tests: finance (zero/partial/negative/±500/rounding), profit split (FR-08),
-  reminders (6mo filters / 24mo membrane, FR-09), inventory atomic decrement (FR-07),
-  Persian numbers + fallback parser incl. ARD sample → `company_expense_out_of_pocket`, 580000
+- [x] Types/zod: `Transaction.settled`, `ServiceLog`/`ServiceLogItem`, AI `confidence`/`warnings`;
+  zod `transaction/client/part/serviceLog/settings/backupPayload` schemas
+- [x] Dexie v1 (`src/data/db.ts`) + `LedgerStore` interface (`repository.ts`) with 3 impls:
+  `memoryStore` (tests), `localStore` (current UI driver), `dexieStore` (atomic
+  `decrementStock` in a Dexie rw-transaction); one-time localStorage import
+  (`migrate.ts`, idempotent, reader-injectable); seed moved to `src/data/seed.ts`
+- [x] Full JSON backup in Settings: export (all 5 entities) + import (file picker,
+  confirm dialog, zod-validated BEFORE state changes); overtime/absence settings
+  fields + full `BaseAccrued` preview (FR-04 config complete)
+- [x] Pure engines + tests: finance (existing, extended), `profit` (FR-08 split),
+  `reminders` (FR-09: 6mo/24mo, due-soon 14d), `inventory` (FR-07 atomic planner),
+  Persian numbers + fallback (existing, hardened)
+- [x] Gate: `lint` ✅ `test` (55 tests, 7 files) ✅ `build` (+SW) ✅; server smoke test:
+  partial-payment sentence → `client_receivable` 450k/350k/100k ✅
+- [ ] Deferred (honest): real IndexedDB instantiation untested (no fake-indexeddb yet —
+  Dexie paths covered by interface-level tests via memory store); App cutover from
+  localStorage to Dexie happens in Phase 3
 
 ## Phase 3 — State + app shell
 

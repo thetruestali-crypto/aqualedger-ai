@@ -34,3 +34,10 @@
   zero-length matches (`exec` already advances past consuming matches). Symptom: any leading
   text before the amount (`از جیب ۵۸۰ تومن...`) returned 80_000 instead of 580_000. Fixed to
   `++` only on `m[0] === ''`. Lesson: the old fallback had this latent bug; tests caught it.
+- **D10. Store cutover is Phase 3, not Phase 2:** Phase 2 ships the `LedgerStore` interface +
+  memory/local/Dexie implementations and a tested one-time migration, but the UI still runs
+  on the localStorage driver. Rationale: migration + backup/restore are verifiable without
+  risking the working app; cutover happens together with Context + debounced writes.
+- **D11. Bare paid/debt numbers live in the fallback, not the extractor:** `extractTomanAmounts`
+  requires a money marker (so `۳ فیلتر` never becomes money). Repeats without a marker
+  (`۳۵۰ نقد داد`) are resolved by keyword-anchored regexes in `fallbackAnalyzeTransaction`.

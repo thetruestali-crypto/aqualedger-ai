@@ -94,6 +94,7 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
           ? `دریافت ${formatToman(quickAmount)} مساعده از ${settings.bossName} ثبت شد.`
           : `خرید ${formatToman(quickAmount)} از جیب برای شرکت ثبت شد.`,
       source: 'manual',
+      settled: true,
     };
 
     onAddTransaction(newTx);

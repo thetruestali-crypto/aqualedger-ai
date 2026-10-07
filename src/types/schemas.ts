@@ -61,6 +61,99 @@ export const aiAnalysisResultSchema = z.object({
 
 export type AIAnalysisResultValidated = z.infer<typeof aiAnalysisResultSchema>;
 
+// --- Stored-entity schemas (backup validation, Dexie writes) ---
+
+export const transactionSchema = z.object({
+  id: z.string().min(1).max(100),
+  date: z.string().datetime({ offset: true }).or(z.string().min(1)),
+  jalaliDate: z.string().max(50).optional(),
+  streamType: streamTypeSchema,
+  transactionType: transactionTypeSchema,
+  party: transactionPartySchema,
+  totalAmount: z.number().int().nonnegative(),
+  paidAmount: z.number().int().nonnegative(),
+  remainingDebt: z.number().int().nonnegative(),
+  financialImpact: financialImpactSchema,
+  paymentMethod: paymentMethodSchema,
+  category: z.string().max(200),
+  items: z.array(transactionItemSchema).optional(),
+  suggestNextServiceMonths: z.number().int().positive().max(60).optional(),
+  description: z.string().max(2000),
+  conversationalSummary: z.string().max(1000),
+  source: z.enum(['ai_voice', 'ai_text', 'manual']),
+  settled: z.boolean().default(false),
+});
+
+export const clientSchema = z.object({
+  id: z.string().min(1).max(100),
+  name: z.string().min(1).max(200),
+  phone: z.string().max(30),
+  address: z.string().max(500),
+  deviceModel: z.string().max(300),
+  totalPaid: z.number().int().nonnegative(),
+  totalDebt: z.number().int().nonnegative(),
+  lastServiceDate: z.string().min(1).max(100),
+  nextServiceDueDate: z.string().min(1).max(100),
+  notes: z.string().max(2000).optional(),
+});
+
+export const partSchema = z.object({
+  id: z.string().min(1).max(100),
+  name: z.string().min(1).max(300),
+  code: z.string().max(50),
+  unit: z.string().max(50),
+  stock: z.number().int().nonnegative(),
+  purchasePrice: z.number().int().nonnegative(),
+  sellPrice: z.number().int().nonnegative(),
+  category: z.enum(['filter', 'membrane', 'pump', 'switch', 'housing', 'fitting', 'tool']),
+  lowStockThreshold: z.number().int().nonnegative().optional(),
+});
+
+export const serviceLogItemSchema = z.object({
+  partId: z.string().max(100).optional(),
+  name: z.string().min(1).max(300),
+  qty: z.number().int().positive(),
+  sellPrice: z.number().int().nonnegative(),
+  buyPrice: z.number().int().nonnegative(),
+});
+
+export const serviceLogSchema = z.object({
+  id: z.string().min(1).max(100),
+  clientId: z.string().min(1).max(100),
+  date: z.string().min(1).max(100),
+  items: z.array(serviceLogItemSchema),
+  laborFee: z.number().int().nonnegative(),
+  nextServiceDueDate: z.string().min(1).max(100),
+  notes: z.string().max(2000).optional(),
+});
+
+export const settingsSchema = z.object({
+  companyName: z.string().max(200),
+  bossName: z.string().max(200),
+  bossPhone: z.string().max(30),
+  monthlyBaseSalary: z.number().int().nonnegative(),
+  salaryPaymentDay: z.number().int().min(1).max(31),
+  overtimeHourlyRate: z.number().int().nonnegative(),
+  insuranceDeduction: z.number().int().nonnegative(),
+  autoAccrueSalary: z.boolean(),
+  overtimeHours: z.number().nonnegative().optional(),
+  absenceDays: z.number().nonnegative().optional(),
+  absenceDailyRate: z.number().int().nonnegative().optional(),
+  commissionPct: z.number().min(0).max(100).optional(),
+});
+
+export const backupPayloadSchema = z.object({
+  version: z.literal(1),
+  exportedAt: z.string().min(1),
+  transactions: z.array(transactionSchema),
+  clients: z.array(clientSchema),
+  parts: z.array(partSchema),
+  serviceLogs: z.array(serviceLogSchema),
+  settings: settingsSchema,
+});
+
+export type BackupPayloadValidated = z.infer<typeof backupPayloadSchema>;
+
 // --- Request schemas ---
 
 export const analyzeTransactionRequestSchema = z.object({

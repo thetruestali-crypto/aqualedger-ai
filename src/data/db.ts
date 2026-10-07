@@ -2,17 +2,7 @@
 // LocalStorage keys (aqualedger_*_v1) are imported once on first run (see migrateFromLocalStorage).
 // All money: integer Toman.
 import Dexie, { type Table } from 'dexie';
-import type { Transaction, CompanySettings, Client, PartItem } from '../types';
-
-export interface ServiceLog {
-  id: string;
-  clientId: string;
-  date: string; // ISO
-  items: Array<{ partId?: string; name: string; qty: number; sellPrice: number; buyPrice: number }>;
-  laborFee: number; // اجرت جدا از سود قطعه
-  nextServiceDueDate: string; // ISO
-  notes?: string;
-}
+import type { Transaction, CompanySettings, Client, PartItem, ServiceLog } from '../types';
 
 export interface PendingAIRequest {
   id: string;

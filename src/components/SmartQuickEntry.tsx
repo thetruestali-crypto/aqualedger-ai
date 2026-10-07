@@ -242,6 +242,7 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
       description: analysisResult.description,
       conversationalSummary: analysisResult.conversationalSummary,
       source: isListening ? 'ai_voice' : 'ai_text',
+      settled: remaining === 0,
     };
 
     onSaveTransaction(newTx);
