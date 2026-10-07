@@ -15,8 +15,9 @@ import {
   CheckCircle2,
   Filter,
 } from 'lucide-react';
-import { Transaction, CompanySettings, Client } from '../types';
+import { Transaction, CompanySettings, Client, PartItem } from '../types';
 import { FinancialSummary } from '../utils/financialEngine';
+import type { ReminderLists } from '../domain/reminders';
 import {
   formatToman,
   formatTomanCompact,
@@ -30,6 +31,8 @@ interface DashboardViewProps {
   transactions: Transaction[];
   settings: CompanySettings;
   clients: Client[];
+  reminders: ReminderLists;
+  lowStock: PartItem[];
   onOpenQuickEntry: () => void;
   onNavigateTab: (tab: string) => void;
   onExportSettlement: () => void;
@@ -40,6 +43,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   transactions,
   settings,
   clients,
+  reminders,
+  lowStock,
   onOpenQuickEntry,
   onNavigateTab,
   onExportSettlement,
@@ -50,14 +55,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const displayedTransactions = transactions.filter((t) => {
     if (filterType === 'all') return true;
     return t.streamType === filterType;
-  });
-
-  // Check clients due for filter replacement soon (>= 150 days ago)
-  const dueClients = clients.filter((c) => {
-    const last = new Date(c.lastServiceDate);
-    const now = new Date();
-    const days = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
-    return days >= 150; // تقریبا ۵ ماه یا بیشتر گذشته
   });
 
   return (
@@ -215,20 +212,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Reminder Alerts for Water Filter Replacement */}
-      {dueClients.length > 0 && (
-        <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Reminder Alerts for Water Filter Replacement (FR-09) */}
+      {reminders.overdue.length > 0 && (
+        <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+            <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 shrink-0">
               <AlertTriangle className="w-5 h-5" />
             </div>
             <div>
+              <h4 className="font-bold text-sm text-rose-200">
+                موعد سرویس گذشته ({toPersianDigits(reminders.overdue.length)} مشتری)
+              </h4>
+              <p className="text-xs text-rose-300/80 mt-0.5">
+                {reminders.overdue
+                  .slice(0, 3)
+                  .map((r) => r.client.name)
+                  .join('، ')}
+                {reminders.overdue.length > 3 && ' و دیگران'} — تماس برای هماهنگی سرویس!
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigateTab('clients')}
+            className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs whitespace-nowrap transition-colors"
+          >
+            مشاهده مشتریان
+          </button>
+        </div>
+      )}
+      {reminders.dueSoon.length > 0 && (
+        <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
               <h4 className="font-bold text-sm text-amber-200">
-                یادآور دوره‌ای: موعد تعویض فیلتر ۶ ماهه ({toPersianDigits(dueClients.length)} مشتری)
+                یادآور دوره‌ای: سرویس نزدیک است ({toPersianDigits(reminders.dueSoon.length)} مشتری)
               </h4>
               <p className="text-xs text-amber-300/80 mt-0.5">
-                فیلترهای ۳ مرحله اول برخی مشتریان (از جمله {dueClients[0]?.name}) نیازمند تعویض است.
-                تماس برای هماهنگی سرویس جدید درآمدزاست!
+                {reminders.dueSoon
+                  .slice(0, 3)
+                  .map((r) => r.client.name)
+                  .join('، ')}
+                {reminders.dueSoon.length > 3 && ' و دیگران'} — موعد تعویض فیلتر نزدیک است.
               </p>
             </div>
           </div>
@@ -237,6 +264,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs whitespace-nowrap transition-colors"
           >
             مشاهده مشتریان
+          </button>
+        </div>
+      )}
+
+      {/* Low-stock alert (FR-07) */}
+      {lowStock.length > 0 && (
+        <div className="p-4 rounded-2xl bg-violet-950/30 border border-violet-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-violet-500/20 text-violet-400 shrink-0">
+              <Filter className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="font-bold text-sm text-violet-200">
+                هشدار موجودی انبار ({toPersianDigits(lowStock.length)} قلم)
+              </h4>
+              <p className="text-xs text-violet-300/80 mt-0.5">
+                {lowStock
+                  .slice(0, 3)
+                  .map((p) => `${p.name} (${toPersianDigits(p.stock)} ${p.unit})`)
+                  .join('، ')}
+                {lowStock.length > 3 && ' و دیگران'} — زمان شارژ انبار است.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigateTab('inventory')}
+            className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs whitespace-nowrap transition-colors"
+          >
+            مشاهده انبار
           </button>
         </div>
       )}

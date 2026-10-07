@@ -81,6 +81,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const driverRef = useRef<LedgerStore | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readyRef = useRef(false);
+  const snapshotRef = useRef(snapshotOf(EMPTY_STATE));
+  snapshotRef.current = snapshotOf(state);
 
   const reload = useCallback(async () => {
     const driver = driverRef.current;
@@ -135,6 +137,32 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [state]);
+
+  // Flush pending writes when the page is hidden/closed: closing the tab
+  // inside the debounce window must not lose the last action (best-effort;
+  // the browser may still cut off very late writes).
+  useEffect(() => {
+    const flush = () => {
+      if (!readyRef.current || !driverRef.current) return;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      const snap = snapshotRef.current;
+      driverRef.current
+        .importBackup({ version: 1, exportedAt: new Date().toISOString(), ...snap })
+        .catch(() => undefined);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, []);
 
   const summary = useMemo(
     () => selectSummary(state),

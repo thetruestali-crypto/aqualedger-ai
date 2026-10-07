@@ -15,7 +15,7 @@ import {
   Trash2,
   MessageCircle,
 } from 'lucide-react';
-import { Transaction, CompanySettings } from '../types';
+import { Transaction, CompanySettings, TransactionType } from '../types';
 import { FinancialSummary } from '../utils/financialEngine';
 import {
   formatToman,
@@ -31,6 +31,8 @@ interface CompanyLedgerViewProps {
   onAddTransaction: (tx: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
   onExportSettlement: () => void;
+  onAccrueSalary: () => void;
+  accrualRecorded: boolean;
 }
 
 export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
@@ -40,6 +42,8 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
   onAddTransaction,
   onDeleteTransaction,
   onExportSettlement,
+  onAccrueSalary,
+  accrualRecorded,
 }) => {
   const [showQuickModal, setShowQuickModal] = useState<
     'none' | 'advance' | 'out_of_pocket' | 'payout'
@@ -54,7 +58,7 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
   const handleCreateFastTransaction = (type: 'advance' | 'out_of_pocket' | 'payout') => {
     if (!quickAmount || quickAmount <= 0) return;
 
-    let transactionType: any = 'company_expense_out_of_pocket';
+    let transactionType: TransactionType = 'company_expense_out_of_pocket';
     let category = 'خرید تنخواه';
     let balanceChange = quickAmount;
 
@@ -67,6 +71,19 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
       category = 'واریز حقوق';
       balanceChange = -quickAmount;
     }
+
+    const defaultDesc =
+      type === 'advance'
+        ? 'دریافت مساعده از رئیس'
+        : type === 'payout'
+          ? 'واریز حقوق از شرکت'
+          : 'خرید از جیب برای شرکت';
+    const summaryText =
+      type === 'advance'
+        ? `دریافت ${formatToman(quickAmount)} مساعده از ${settings.bossName} ثبت شد.`
+        : type === 'payout'
+          ? `واریز ${formatToman(quickAmount)} حقوق از شرکت ثبت شد.`
+          : `خرید ${formatToman(quickAmount)} از جیب برای شرکت ثبت شد.`;
 
     const newTx: Transaction = {
       id: `tx-comp-${Date.now()}`,
@@ -88,11 +105,8 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
       },
       paymentMethod: 'card_to_card',
       category,
-      description: quickDesc || (type === 'advance' ? 'دریافت مساعده از رئیس' : 'خرید از جیب برای شرکت'),
-      conversationalSummary:
-        type === 'advance'
-          ? `دریافت ${formatToman(quickAmount)} مساعده از ${settings.bossName} ثبت شد.`
-          : `خرید ${formatToman(quickAmount)} از جیب برای شرکت ثبت شد.`,
+      description: quickDesc || defaultDesc,
+      conversationalSummary: summaryText,
       source: 'manual',
       settled: true,
     };
@@ -135,6 +149,22 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
           >
             <DollarSign className="w-4 h-4" />
             <span>ثبت دریافت مساعده</span>
+          </button>
+          <button
+            onClick={() => setShowQuickModal('payout')}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs shadow-md shadow-violet-600/20 transition-all"
+          >
+            <DollarSign className="w-4 h-4" />
+            <span>ثبت واریز حقوق</span>
+          </button>
+          <button
+            onClick={onAccrueSalary}
+            disabled={accrualRecorded}
+            title={accrualRecorded ? 'حقوق این ماه قبلاً ثبت شده است' : 'ثبت سند یادداشت حقوق پایه این ماه'}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 font-bold text-xs transition-all disabled:opacity-50"
+          >
+            <Calendar className="w-4 h-4 text-cyan-400" />
+            <span>{accrualRecorded ? 'حقوق ماه ثبت شده ✓' : 'ثبت حقوق این ماه'}</span>
           </button>
           <button
             onClick={onExportSettlement}
@@ -241,7 +271,48 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
           <div className="divide-y divide-slate-800/80">
             {companyTransactions.map((tx) => {
               const isOutOfPocket = tx.transactionType === 'company_expense_out_of_pocket';
-              const isAdvance = tx.transactionType === 'boss_advance_received';
+              const isPayout = tx.transactionType === 'salary_payout';
+              const isAccrual = tx.transactionType === 'salary_accrual';
+              const tone = isOutOfPocket
+                ? 'emerald'
+                : isAccrual
+                  ? 'cyan'
+                  : isPayout
+                    ? 'violet'
+                    : 'rose';
+              // Full literal class names so Tailwind JIT can detect them.
+              const toneClasses: Record<string, { chip: string; badge: string; text: string }> = {
+                emerald: {
+                  chip: 'bg-emerald-500/20 text-emerald-400',
+                  badge: 'bg-emerald-950 text-emerald-300 border-emerald-800',
+                  text: 'text-emerald-400',
+                },
+                rose: {
+                  chip: 'bg-rose-500/20 text-rose-400',
+                  badge: 'bg-rose-950 text-rose-300 border-rose-800',
+                  text: 'text-rose-400',
+                },
+                violet: {
+                  chip: 'bg-violet-500/20 text-violet-400',
+                  badge: 'bg-violet-950 text-violet-300 border-violet-800',
+                  text: 'text-violet-400',
+                },
+                cyan: {
+                  chip: 'bg-cyan-500/20 text-cyan-400',
+                  badge: 'bg-cyan-950 text-cyan-300 border-cyan-800',
+                  text: 'text-cyan-400',
+                },
+              };
+              const tc = toneClasses[tone];
+              const badge =
+                isOutOfPocket
+                  ? 'خرید از جیب (طلبکار)'
+                  : isAccrual
+                    ? 'یادداشت حقوق (بدون اثر در تراز)'
+                    : isPayout
+                      ? 'واریز حقوق (کسر از طلب)'
+                      : 'مساعده (کاهش طلب)';
+              const effect = isOutOfPocket ? '+ اضافه به طلب' : '- کسر از طلب';
 
               return (
                 <div
@@ -249,13 +320,7 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
                   className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/20 px-2 rounded-xl transition-all"
                 >
                   <div className="flex items-start gap-3">
-                    <div
-                      className={`p-2.5 rounded-xl shrink-0 mt-0.5 ${
-                        isOutOfPocket
-                          ? 'bg-emerald-500/20 text-emerald-400'
-                          : 'bg-rose-500/20 text-rose-400'
-                      }`}
-                    >
+                    <div className={`p-2.5 rounded-xl shrink-0 mt-0.5 ${tc.chip}`}>
                       {isOutOfPocket ? (
                         <ArrowUpRight className="w-4 h-4" />
                       ) : (
@@ -267,13 +332,9 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-sm text-white">{tx.category}</span>
                         <span
-                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
-                            isOutOfPocket
-                              ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                              : 'bg-rose-950 text-rose-300 border-rose-800'
-                          }`}
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${tc.badge}`}
                         >
-                          {isOutOfPocket ? 'خرید از جیب (طلبکار)' : 'مساعده (کاهش طلب)'}
+                          {badge}
                         </span>
                       </div>
                       <p className="text-xs text-slate-300 mt-1 leading-relaxed">
@@ -290,12 +351,8 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
                       <div className="text-base font-black font-mono text-white">
                         {formatToman(tx.totalAmount)}
                       </div>
-                      <span
-                        className={`text-[11px] font-bold ${
-                          isOutOfPocket ? 'text-emerald-400' : 'text-rose-400'
-                        }`}
-                      >
-                        {isOutOfPocket ? '+ اضافه به طلب' : '- کسر از طلب'}
+                      <span className={`text-[11px] font-bold ${tc.text}`}>
+                        {isAccrual ? 'سند یادداشت' : effect}
                       </span>
                     </div>
 
@@ -323,6 +380,11 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
                 <>
                   <PlusCircle className="w-5 h-5 text-emerald-400" />
                   <span>ثبت خرید از جیب برای شرکت (طلب از رئیس)</span>
+                </>
+              ) : showQuickModal === 'payout' ? (
+                <>
+                  <DollarSign className="w-5 h-5 text-violet-400" />
+                  <span>ثبت واریز حقوق از شرکت (کسر از طلب)</span>
                 </>
               ) : (
                 <>

@@ -74,13 +74,26 @@ missing `GEMINI_MODEL/PORT/NODE_ENV/DISABLE_HMR` · scripts missing `test`, `tes
 - [ ] Deferred (honest): full happy-path E2E (type→preview→confirm→balance→reload)
   is Phase 8; service-worker offline behavior is Phase 7
 
-## Phase 4 — Ledgers + inventory + reminders (FR-03..FR-09)
+## Phase 4 — Ledgers + inventory + reminders (DONE 2026-10-07)
 
-- [ ] Company ledger: quick-add (out-of-pocket/advance/payout), salary config + month-end accrual
-- [ ] Client ledger: per-invoice debt/settle cards, partial payments, filters, settle action
-- [ ] CRM: profile, device brand, breakdown history, parts used, search (creditors, service-due)
-- [ ] Inventory CRUD + atomic decrement on service/sale + low-stock alerts; ServiceLogs
-- [ ] Reminders due/overdue list on dashboard (+ optional local Notification)
+- [x] Company ledger: payout quick-add button, manual salary-accrual memo + auto-accrue
+  on boot (FR-04 complete; engine stays settings-driven, memos excluded from sums),
+  correct per-type row styling; fixed `transactionType: any`
+- [x] Client ledger: per-invoice open/invoice cards with partial settlement
+  (`SETTLE_INVOICE` mutates the invoice, no double-counting); aggregate settle
+  allocates oldest-first + residual receipt; `ClientDetailModal` (profile edit,
+  invoices, parts-used, full history); filters + search kept (FR-05/06)
+- [x] Inventory + service: field sales auto-decrement stock via driver (best-effort
+  with warning toast) + parts refresh; `ServiceLog` auto-derived per sale;
+  per-part low-stock thresholds + row alerts; dashboard overdue/due-soon/low-stock
+  banners from memoized selectors (FR-07/08/09)
+- [x] Engines: `domain/salary` (Jalali accrual keys), `domain/serviceLog`,
+  `selectClientInvoices/History`, `SET_PARTS`
+- [x] Gate: `lint` ✅ `test` (76 unit) ✅ `build` (+SW) ✅ + full happy-path E2E
+  (type→preview→confirm→balance→reload persists) ✅ — which caught a real durability
+  race (reload inside the 500ms debounce), fixed with visibility/pagehide flush
+- [ ] Deferred (honest): local Notification reminders → Phase 7 (needs PWA plumbing);
+  invoice edit/delete UI; reports/charts → Phase 6
 
 ## Phase 5 — AI (FR-01/02/10)
 

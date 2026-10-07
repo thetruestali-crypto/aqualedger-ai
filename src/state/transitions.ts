@@ -28,6 +28,8 @@ export type AppAction =
   | { type: 'ADD_CLIENT'; client: Client }
   | { type: 'UPDATE_CLIENT'; client: Client }
   | { type: 'SETTLE_CLIENT_DEBT'; clientId: string; amount: number; nowISO: string }
+  | { type: 'SETTLE_INVOICE'; txId: string; amount: number; nowISO: string }
+  | { type: 'SET_PARTS'; parts: PartItem[] }
   | { type: 'ADD_PART'; part: PartItem }
   | { type: 'UPDATE_PART'; part: PartItem }
   | { type: 'DELETE_PART'; id: string }
@@ -51,6 +53,42 @@ function findClientIndex(clients: Client[], name: string): number {
     (c) =>
       c.name.toLowerCase().includes(needle) || needle.includes(c.name.toLowerCase()),
   );
+}
+
+/** Public matcher: client record for a transaction party name (or null). */
+export function matchClientId(clients: Client[], partyName: string): string | null {
+  const idx = findClientIndex(clients, partyName);
+  return idx >= 0 ? clients[idx].id : null;
+}
+
+const INVOICE_TYPES: Transaction['transactionType'][] = ['client_receivable', 'client_part_cost'];
+
+/** Open (unsettled) invoice transactions of a client, oldest first. */
+export function getClientInvoices(transactions: Transaction[], client: Client): Transaction[] {
+  const needle = client.name.trim().toLowerCase();
+  return transactions
+    .filter(
+      (t) =>
+        INVOICE_TYPES.includes(t.transactionType) &&
+        t.party?.role === 'client' &&
+        (t.party.name.toLowerCase().includes(needle) ||
+          needle.includes(t.party.name.toLowerCase())) &&
+        (t.remainingDebt ?? 0) > 0,
+    )
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+/** All transactions of a client (history), newest first. */
+export function getClientHistory(transactions: Transaction[], client: Client): Transaction[] {
+  const needle = client.name.trim().toLowerCase();
+  return transactions
+    .filter(
+      (t) =>
+        t.party?.role === 'client' &&
+        (t.party.name.toLowerCase().includes(needle) ||
+          needle.includes(t.party.name.toLowerCase())),
+    )
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
 /** Client upsert derived from a field transaction (mirrors legacy App behavior). */
@@ -117,34 +155,106 @@ export function applyAction(state: AppState, action: AppAction): AppState {
         clients: state.clients.map((c) => (c.id === action.client.id ? action.client : c)),
       };
     case 'SETTLE_CLIENT_DEBT': {
+      // Allocate across the client's open invoices (oldest first); any amount
+      // beyond all open invoices is recorded as a residual settlement receipt.
       const target = state.clients.find((c) => c.id === action.clientId);
       if (!target) return state;
-      const amount = Math.max(0, Math.min(action.amount, target.totalDebt));
-      if (amount <= 0) return state;
-      const clients = state.clients.map((c) =>
+      if (!(action.amount > 0)) return state;
+      let rest = Math.round(action.amount);
+      let transactions = state.transactions;
+      let paidTotal = 0;
+
+      const applyToInvoice = (tx: Transaction, apply: number): Transaction => {
+        const paid = Math.min(apply, tx.remainingDebt);
+        const paidAmount = tx.paidAmount + paid;
+        const remainingDebt = tx.remainingDebt - paid;
+        return { ...tx, paidAmount, remainingDebt, settled: remainingDebt <= 0 };
+      };
+
+      for (const inv of getClientInvoices(state.transactions, target)) {
+        if (rest <= 0) break;
+        const apply = Math.min(rest, inv.remainingDebt);
+        if (apply <= 0) continue;
+        transactions = transactions.map((t) => (t.id === inv.id ? applyToInvoice(t, apply) : t));
+        rest -= apply;
+        paidTotal += apply;
+      }
+
+      let clients = state.clients.map((c) =>
         c.id === action.clientId
-          ? { ...c, totalPaid: c.totalPaid + amount, totalDebt: c.totalDebt - amount }
+          ? {
+              ...c,
+              totalPaid: c.totalPaid + paidTotal,
+              totalDebt: Math.max(0, c.totalDebt - paidTotal),
+            }
           : c,
       );
-      const settleTx: Transaction = {
-        id: `tx-settle-${Date.now()}`,
-        date: action.nowISO,
-        streamType: 'field',
-        transactionType: 'client_payment_received',
-        party: { role: 'client', name: target.name, phone: target.phone },
-        totalAmount: amount,
-        paidAmount: amount,
-        remainingDebt: 0,
-        financialImpact: { targetBalance: 'personal_cash', userBalanceChange: 0 },
-        paymentMethod: 'card_to_card',
-        category: 'تسویه بدهی معوق',
-        description: `تسویه مبلغ بدهی توسط ${target.name}`,
-        conversationalSummary: `دریافت ${amount.toLocaleString('fa-IR')} تومان بابت تسویه بدهی ${target.name} ثبت شد.`,
-        source: 'manual',
-        settled: true,
-      };
-      return { ...state, clients, transactions: [settleTx, ...state.transactions] };
+
+      if (rest > 0) {
+        // Residual (overpayment / payment without a matching invoice).
+        const settleTx: Transaction = {
+          id: `tx-settle-${Date.now()}`,
+          date: action.nowISO,
+          streamType: 'field',
+          transactionType: 'client_payment_received',
+          party: { role: 'client', name: target.name, phone: target.phone },
+          totalAmount: rest,
+          paidAmount: rest,
+          remainingDebt: 0,
+          financialImpact: { targetBalance: 'personal_cash', userBalanceChange: 0 },
+          paymentMethod: 'card_to_card',
+          category: 'تسویه بدهی معوق',
+          description: `تسویه مبلغ بدهی توسط ${target.name}`,
+          conversationalSummary: `دریافت ${rest.toLocaleString('fa-IR')} تومان بابت تسویه بدهی ${target.name} ثبت شد.`,
+          source: 'manual',
+          settled: true,
+        };
+        transactions = [settleTx, ...transactions];
+        clients = clients.map((c) =>
+          c.id === action.clientId
+            ? {
+                ...c,
+                totalPaid: c.totalPaid + rest,
+                totalDebt: Math.max(0, c.totalDebt - rest),
+              }
+            : c,
+        );
+      }
+      return { ...state, clients, transactions };
     }
+    case 'SETTLE_INVOICE': {
+      // Settle (fully or partially) ONE invoice: mutate it, update its client.
+      if (!(action.amount > 0)) return state;
+      const inv = state.transactions.find((t) => t.id === action.txId);
+      if (!inv || (inv.remainingDebt ?? 0) <= 0) return state;
+      const apply = Math.min(Math.round(action.amount), inv.remainingDebt);
+      const transactions = state.transactions.map((t) =>
+        t.id === action.txId
+          ? {
+              ...t,
+              paidAmount: t.paidAmount + apply,
+              remainingDebt: t.remainingDebt - apply,
+              settled: t.remainingDebt - apply <= 0,
+            }
+          : t,
+      );
+      const clientId = matchClientId(state.clients, inv.party.name);
+      const clients =
+        clientId === null
+          ? state.clients
+          : state.clients.map((c) =>
+              c.id === clientId
+                ? {
+                    ...c,
+                    totalPaid: c.totalPaid + apply,
+                    totalDebt: Math.max(0, c.totalDebt - apply),
+                  }
+                : c,
+            );
+      return { ...state, transactions, clients };
+    }
+    case 'SET_PARTS':
+      return { ...state, parts: action.parts };
     case 'ADD_PART':
       return { ...state, parts: [action.part, ...state.parts] };
     case 'UPDATE_PART':

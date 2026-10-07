@@ -37,6 +37,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [purchasePrice, setPurchasePrice] = useState(200_000);
   const [sellPrice, setSellPrice] = useState(350_000);
   const [category, setCategory] = useState<PartItem['category']>('filter');
+  const [lowStockThreshold, setLowStockThreshold] = useState(3);
 
   // Compute total inventory value and total estimated profit margin
   const totalStockItems = parts.reduce((acc, p) => acc + (p.stock || 0), 0);
@@ -60,6 +61,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         purchasePrice,
         sellPrice,
         category,
+        lowStockThreshold,
       });
       setEditingPart(null);
     } else {
@@ -72,6 +74,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         purchasePrice,
         sellPrice,
         category,
+        lowStockThreshold,
       };
       onAddPart(newPart);
     }
@@ -89,6 +92,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setPurchasePrice(part.purchasePrice);
     setSellPrice(part.sellPrice);
     setCategory(part.category);
+    setLowStockThreshold(part.lowStockThreshold ?? 3);
     setShowAddModal(true);
   };
 
@@ -100,6 +104,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setPurchasePrice(200_000);
     setSellPrice(350_000);
     setCategory('filter');
+    setLowStockThreshold(3);
     setEditingPart(null);
   };
 
@@ -186,18 +191,32 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   part.purchasePrice > 0
                     ? Math.round((profitPerItem / part.purchasePrice) * 100)
                     : 0;
+                const threshold = part.lowStockThreshold ?? 3;
+                const isLow = part.stock <= threshold;
 
                 return (
-                  <tr key={part.id} className="hover:bg-slate-800/30 transition-colors">
+                  <tr
+                    key={part.id}
+                    className={`hover:bg-slate-800/30 transition-colors ${
+                      isLow ? 'bg-rose-950/20' : ''
+                    }`}
+                  >
                     <td className="py-3.5 px-4">
-                      <div className="font-bold text-white">{part.name}</div>
+                      <div className="font-bold text-white flex items-center gap-1.5">
+                        {part.name}
+                        {isLow && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800 font-bold">
+                            هشدار سفارش
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[11px] text-slate-500">واحد: {part.unit}</span>
                     </td>
                     <td className="py-3.5 px-3 font-mono text-slate-400 text-xs">{part.code}</td>
                     <td className="py-3.5 px-3">
                       <span
                         className={`font-mono font-bold px-2.5 py-1 rounded-lg text-xs ${
-                          part.stock <= 2
+                          isLow
                             ? 'bg-rose-950 text-rose-300 border border-rose-800'
                             : 'bg-slate-800 text-slate-200'
                         }`}
@@ -324,6 +343,22 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <span className="text-slate-400 block mb-1">حاشیه سود ناخالص پیش‌بینی شده:</span>
                 <span className="font-bold text-emerald-400 font-mono text-sm">
                   +{formatToman(sellPrice - purchasePrice)} به ازای هر {unit}
+                </span>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">
+                  حد هشدار موجودی (نقطه سفارش)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={lowStockThreshold}
+                  onChange={(e) => setLowStockThreshold(Math.max(0, Number(e.target.value)))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white font-mono"
+                />
+                <span className="text-[11px] text-slate-500 mt-1 block">
+                  وقتی موجودی به این عدد یا کمتر برسد، هشدار نمایش داده می‌شود.
                 </span>
               </div>
 

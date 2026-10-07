@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { BottomTabs } from './components/BottomTabs';
@@ -14,7 +14,11 @@ import { UserGuideModal } from './components/UserGuideModal';
 
 import type { Transaction, CompanySettings, Client, PartItem } from './types';
 import { AppStoreProvider, useAppStore } from './state/store';
+import { matchClientId } from './state/transitions';
 import { validateBackupPayload, serializeBackup, backupFileName } from './data/backup';
+import { toPersianDigits } from './lib/format';
+import { buildServiceLogFromTransaction } from './domain/serviceLog';
+import { needsMonthlyAccrual, buildSalaryAccrualTx } from './domain/salary';
 import type { BackupPayload } from './data/db';
 
 let toastId = 0;
@@ -36,6 +40,8 @@ function Shell() {
     state,
     dispatch,
     summary,
+    reminders,
+    lowStock,
     ready,
     driver,
     bootFailed,
@@ -49,6 +55,7 @@ function Shell() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
+  const accrualCheckedRef = useRef(false);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -73,14 +80,56 @@ function Shell() {
     }
   }, [ready, bootFailed, pushToast]);
 
-  // Handle adding new transaction (client upsert lives in the reducer)
-  const handleSaveTransaction = (newTx: Transaction) => {
+  // Automatic month-end salary accrual (FR-04): once per boot, record the memo
+  // when autoAccrueSalary is on and this Jalali month has no accrual yet.
+  useEffect(() => {
+    if (!ready || accrualCheckedRef.current) return;
+    accrualCheckedRef.current = true;
+    if (state.settings.autoAccrueSalary && needsMonthlyAccrual(state.transactions, new Date().toISOString())) {
+      dispatch({
+        type: 'RECEIVE_TRANSACTION',
+        tx: buildSalaryAccrualTx(state.settings, new Date().toISOString()),
+      });
+      pushToast('حقوق این ماه به‌صورت خودکار ثبت شد.', 'info');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  // Handle adding new transaction (client upsert lives in the reducer).
+  // Afterwards: derive a service log + decrement sold parts from stock (FR-07).
+  const handleSaveTransaction = async (newTx: Transaction) => {
     dispatch({ type: 'RECEIVE_TRANSACTION', tx: newTx });
     pushToast('تراکنش با موفقیت در دفتر حساب ثبت شد.');
     if (newTx.streamType === 'company') {
       setActiveTab('company');
     } else {
       setActiveTab('dashboard');
+    }
+
+    if (newTx.streamType === 'field' && newTx.items && newTx.items.length > 0) {
+      const clientId = matchClientId(state.clients, newTx.party.name);
+      if (clientId) {
+        const log = buildServiceLogFromTransaction(newTx, clientId);
+        if (log) dispatch({ type: 'SAVE_SERVICE_LOG', log });
+      }
+      const lines = newTx.items
+        .filter((i) => (i.quantity ?? 1) > 0)
+        .map((i) => ({ name: i.itemName, qty: i.quantity ?? 1 }));
+      if (lines.length > 0) {
+        try {
+          const results = await driverRef.current?.decrementStock(lines);
+          if (results && results.length > 0) {
+            const refreshed = await driverRef.current?.getParts();
+            if (refreshed) dispatch({ type: 'SET_PARTS', parts: refreshed });
+            pushToast(`${toPersianDigits(results.length)} قلم از انبار کسر شد.`);
+          }
+        } catch (e) {
+          pushToast(
+            `ثبت شد ولی کسر انبار ناموفق بود: ${e instanceof Error ? e.message : 'خطای نامشخص'}`,
+            'error',
+          );
+        }
+      }
     }
   };
 
@@ -110,6 +159,23 @@ function Shell() {
   const handleSettleClientDebt = (clientId: string, amount: number) => {
     dispatch({ type: 'SETTLE_CLIENT_DEBT', clientId, amount, nowISO: new Date().toISOString() });
     pushToast('تسویه بدهی مشتری ثبت شد.');
+  };
+
+  const handleSettleInvoice = (txId: string, amount: number) => {
+    dispatch({ type: 'SETTLE_INVOICE', txId, amount, nowISO: new Date().toISOString() });
+    pushToast('تسویه فاکتور ثبت شد.');
+  };
+
+  const handleAccrueSalary = () => {
+    if (!needsMonthlyAccrual(transactions, new Date().toISOString())) {
+      pushToast('حقوق این ماه قبلاً ثبت شده است.', 'info');
+      return;
+    }
+    dispatch({
+      type: 'RECEIVE_TRANSACTION',
+      tx: buildSalaryAccrualTx(settings, new Date().toISOString()),
+    });
+    pushToast('سند یادداشت حقوق این ماه ثبت شد.');
   };
 
   // Parts operations
@@ -181,6 +247,8 @@ function Shell() {
             transactions={transactions}
             settings={settings}
             clients={clients}
+            reminders={reminders}
+            lowStock={lowStock}
             onOpenQuickEntry={() => setActiveTab('quick-entry')}
             onNavigateTab={(tab) => setActiveTab(tab)}
             onExportSettlement={() => setIsInvoiceModalOpen(true)}
@@ -199,18 +267,23 @@ function Shell() {
             summary={summary}
             transactions={transactions}
             settings={settings}
-            onAddTransaction={handleSaveTransaction}
+            onAddTransaction={(tx) => void handleSaveTransaction(tx)}
             onDeleteTransaction={handleDeleteTransaction}
             onExportSettlement={() => setIsInvoiceModalOpen(true)}
+            onAccrueSalary={handleAccrueSalary}
+            accrualRecorded={!needsMonthlyAccrual(transactions, new Date().toISOString())}
           />
         )}
 
         {activeTab === 'clients' && (
           <ClientsLedgerView
             clients={clients}
+            transactions={transactions}
+            serviceLogs={state.serviceLogs}
             onAddClient={handleAddClient}
             onUpdateClient={handleUpdateClient}
             onSettleDebt={handleSettleClientDebt}
+            onSettleInvoice={handleSettleInvoice}
           />
         )}
 

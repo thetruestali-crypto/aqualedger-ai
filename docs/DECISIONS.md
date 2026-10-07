@@ -48,3 +48,14 @@
   the localStorage driver on ANY error; the UI shows a splash, then toasts problems in
   Persian instead of a blank screen. Verified by a real-Chromium E2E (migration marker
   + `aqualedger` IndexedDB present, zero console errors).
+- **D14. Settlement accounting (no double-counting):** per-invoice settle mutates the
+  invoice tx itself (`paidAmount`/`remainingDebt`/`settled`) + client totals — no extra tx.
+  Aggregate settle allocates across open invoices oldest-first; only genuine overpayment
+  creates a residual receipt tx. Salary-accrual memos are excluded from engine sums.
+- **D15. Stock decrement is best-effort, not blocking:** a field sale tries
+  `driver.decrementStock` (atomic inside Dexie); unknown/insufficient parts produce a
+  Persian warning toast but never block the sale — the technician fixes stock later.
+  Parts state is re-read from the driver after a successful decrement (no stale UI).
+- **D16. Durability race (caught by the happy-path E2E):** reloading inside the 500ms
+  persist debounce lost the last action. Fixed with a `visibilitychange`/`pagehide`
+  flush of the latest snapshot (best-effort) — debounce retained for batching.

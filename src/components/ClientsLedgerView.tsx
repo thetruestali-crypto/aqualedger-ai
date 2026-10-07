@@ -13,7 +13,7 @@ import {
   DollarSign,
   ChevronLeft,
 } from 'lucide-react';
-import { Client, Transaction } from '../types';
+import { Client, Transaction, ServiceLog } from '../types';
 import {
   formatToman,
   formatTomanCompact,
@@ -21,19 +21,27 @@ import {
   toPersianDigits,
   getDaysAgo,
 } from '../utils/formatters';
+import { ClientDetailModal } from './ClientDetailModal';
+import { getClientInvoices, getClientHistory } from '../state/transitions';
 
 interface ClientsLedgerViewProps {
   clients: Client[];
+  transactions: Transaction[];
+  serviceLogs: ServiceLog[];
   onAddClient: (client: Client) => void;
   onUpdateClient: (client: Client) => void;
   onSettleDebt: (clientId: string, amount: number) => void;
+  onSettleInvoice: (txId: string, amount: number) => void;
 }
 
 export const ClientsLedgerView: React.FC<ClientsLedgerViewProps> = ({
   clients,
+  transactions,
+  serviceLogs,
   onAddClient,
   onUpdateClient,
   onSettleDebt,
+  onSettleInvoice,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'debtors' | 'due_service'>('all');
@@ -41,6 +49,7 @@ export const ClientsLedgerView: React.FC<ClientsLedgerViewProps> = ({
   const [selectedClientForSettlement, setSelectedClientForSettlement] = useState<Client | null>(
     null
   );
+  const [detailClient, setDetailClient] = useState<Client | null>(null);
   const [settleAmount, setSettleAmount] = useState<number>(0);
 
   // New Client Form State
@@ -197,6 +206,7 @@ export const ClientsLedgerView: React.FC<ClientsLedgerViewProps> = ({
             const daysSinceLastService = getDaysAgo(client.lastServiceDate);
             const isDueOver = daysSinceLastService >= 180; // بیش از ۶ ماه
             const isDueSoon = daysSinceLastService >= 150 && daysSinceLastService < 180; // در آستانه ۶ ماه
+            const openInvoices = getClientInvoices(transactions, client);
 
             return (
               <div
@@ -282,9 +292,21 @@ export const ClientsLedgerView: React.FC<ClientsLedgerViewProps> = ({
                 <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800">
                   <span className="text-xs text-slate-500">
                     کل دریافتی قبلی: {formatTomanCompact(client.totalPaid)}
+                    {openInvoices.length > 0 && (
+                      <span className="text-amber-400 font-bold">
+                        {' '}
+                        • {toPersianDigits(openInvoices.length)} فاکتور باز
+                      </span>
+                    )}
                   </span>
 
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setDetailClient(client)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-semibold"
+                    >
+                      پرونده و فاکتورها
+                    </button>
                     {client.totalDebt > 0 && (
                       <button
                         onClick={() => {
@@ -403,6 +425,22 @@ export const ClientsLedgerView: React.FC<ClientsLedgerViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Client Detail Modal */}
+      {detailClient && (
+        <ClientDetailModal
+          client={detailClient}
+          invoices={getClientInvoices(transactions, detailClient)}
+          history={getClientHistory(transactions, detailClient)}
+          serviceLogs={serviceLogs.filter((l) => l.clientId === detailClient.id)}
+          onClose={() => setDetailClient(null)}
+          onUpdateClient={(updated) => {
+            onUpdateClient(updated);
+            setDetailClient(updated);
+          }}
+          onSettleInvoice={onSettleInvoice}
+        />
       )}
 
       {/* Settle Debt Modal */}
