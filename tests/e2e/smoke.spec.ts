@@ -23,4 +23,8 @@ test('app boots, migrates to Dexie, shows dashboard', async ({ page }) => {
     return dbs.map((d) => d.name);
   });
   expect(dbNames).toContain('aqualedger');
+
+  // Reports view renders charts from the same store (dashboard entry button).
+  await page.locator('main').getByRole('button', { name: 'گزارش سود و زیان' }).click();
+  await expect(page.getByText('جریان نقدی دوره')).toBeVisible({ timeout: 15000 });
 });

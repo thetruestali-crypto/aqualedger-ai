@@ -9,6 +9,7 @@ import {
   Droplets,
   PlusCircle,
   HelpCircle,
+  BarChart3,
 } from 'lucide-react';
 import { formatTomanCompact } from '../utils/formatters';
 
@@ -35,6 +36,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'company', label: 'دفتر حساب رئیس و شرکت', icon: Building2 },
     { id: 'clients', label: 'مشتریان و یادآور سرویس', icon: Users },
     { id: 'inventory', label: 'انبارک قطعات تصفیه', icon: Wrench },
+    { id: 'reports', label: 'گزارش سود و زیان', icon: BarChart3 },
     { id: 'settings', label: 'قرارداد و حقوق', icon: Sliders },
   ];
 

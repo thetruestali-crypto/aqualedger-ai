@@ -8,6 +8,7 @@ import { SmartQuickEntry } from './components/SmartQuickEntry';
 import { CompanyLedgerView } from './components/CompanyLedgerView';
 import { ClientsLedgerView } from './components/ClientsLedgerView';
 import { InventoryView } from './components/InventoryView';
+import { ReportsView } from './components/ReportsView';
 import { SettingsView } from './components/SettingsView';
 import { InvoiceExportModal } from './components/InvoiceExportModal';
 import { UserGuideModal } from './components/UserGuideModal';
@@ -297,6 +298,8 @@ function Shell() {
             onDeletePart={handleDeletePart}
           />
         )}
+
+        {activeTab === 'reports' && <ReportsView transactions={transactions} />}
 
         {activeTab === 'settings' && (
           <SettingsView

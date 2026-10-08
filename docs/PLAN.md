@@ -110,10 +110,18 @@ missing `GEMINI_MODEL/PORT/NODE_ENV/DISABLE_HMR` · scripts missing `test`, `tes
 - [ ] Deferred (honest): real Gemini audio path untested (no key in CI); E2E mic
   recording (needs fake media device); offline AI queue → Phase 7
 
-## Phase 6 — Reports & export (FR-11 + extras)
+## Phase 6 — Reports & export (DONE 2026-10-08)
 
-- [ ] Daily/weekly/monthly: company income, field income, expenses, part profit, net profit; charts + KPIs
-- [ ] WhatsApp-ready boss statement + client invoice (copy button); user-guide modal; reset-to-demo
+- [x] `domain/reports`: daily/weekly/monthly buckets (exact Jalali-month anchors),
+  companyIn/Out, fieldIn, partsCost, partProfit vs labor split, toolExpense, net;
+  memos excluded, future rows ignored
+- [x] `ReportsView` (recharts ComposedChart + stacked part/labor + bucket table + KPIs,
+  dark theme, Jalali labels); reachable via dashboard button + desktop navbar tab
+  (mobile bottom bar stays at 6 slots by spec)
+- [x] Extras already present and kept: WhatsApp-ready export modal, user guide,
+  reset-to-demo, full JSON backup/restore
+- [x] Gate: `lint` ✅ `test` (90 unit) ✅ `build` ✅ + E2E (reports render) ✅
+- [ ] Deferred (honest): PDF export (out of scope); custom date ranges
 
 ## Phase 7 — Offline hardening (FR-12)
 

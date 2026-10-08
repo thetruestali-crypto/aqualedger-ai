@@ -66,3 +66,10 @@
 - **D18. Voice chain (no dead ends):** MediaRecorder upload → on 503/no-key auto-fallback
   to Web Speech fa-IR → if unsupported, a clear message + the text box stays. Manual entry
   is never gated on AI, network, or microphone.
+- **D19. Report accounting (cash view):** net = (companyIn + fieldIn) − (companyOut +
+  partsCost + toolExpense); advances/payouts count as companyIn (cash received),
+  accrual memos excluded. Month buckets use exact Jalali month starts (day-walked),
+  day buckets use the local calendar day (UTC slicing mis-buckets +3:30).
+- **D20. recharts needs `react-is`:** the v3 ESM build imports it but npm does not hoist
+  it; added explicitly (`react-is@^19.3.0`). Reports stay out of the mobile bottom bar
+  (6 slots per spec) — entry is the dashboard button + desktop tab.

@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Filter,
+  BarChart3,
 } from 'lucide-react';
 import { Transaction, CompanySettings, Client, PartItem } from '../types';
 import { FinancialSummary } from '../utils/financialEngine';
@@ -89,6 +90,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           >
             <FileText className="w-4 h-4 text-cyan-400" />
             <span>صورتحساب تسویه</span>
+          </button>
+          <button
+            onClick={() => onNavigateTab('reports')}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs sm:text-sm shadow-md shadow-violet-600/20 transition-all"
+            title="گزارش روزانه، هفتگی و ماهانه سود و زیان"
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>گزارش سود و زیان</span>
           </button>
         </div>
       </div>
