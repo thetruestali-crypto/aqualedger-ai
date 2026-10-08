@@ -123,10 +123,21 @@ missing `GEMINI_MODEL/PORT/NODE_ENV/DISABLE_HMR` · scripts missing `test`, `tes
 - [x] Gate: `lint` ✅ `test` (90 unit) ✅ `build` ✅ + E2E (reports render) ✅
 - [ ] Deferred (honest): PDF export (out of scope); custom date ranges
 
-## Phase 7 — Offline hardening (FR-12)
+## Phase 7 — Offline hardening (DONE 2026-10-08)
 
-- [ ] App-shell caching, IndexedDB data, offline AI queue ("pending" state), local fallback parse,
-  install prompt, self-hosted Vazirmatn, migration + backup/restore tests
+- [x] App-shell caching (generateSW + `skipWaiting`/`clientsClaim`, 17 precached entries),
+  SW registered in `main.tsx`; PWA icons generated + manifest + install card in Settings
+  (`useInstallPrompt`); self-hosted Vazirmatn (arabic+latin subsets, Google Fonts removed)
+- [x] Offline AI queue (`data/outbox` on the Dexie `pendingQueue`): network failures
+  enqueue with visible pending list + manual retry/delete; offline analyze routes to the
+  on-device parser automatically (+ always-available "تحلیل محلی" button); local parse
+  reuses the same `fallback + finalize` pipeline as the server
+- [x] Tests: real-Dexie suite via `fake-indexeddb` (store CRUD, atomic decrement,
+  backup round-trip, migration into real Dexie, outbox); offline E2E (kill network →
+  reload shell+data → local parse preview)
+- [x] Gate: `lint` ✅ `test` (95 unit) ✅ `build` ✅ + 3 E2E ✅
+- [ ] Deferred (honest): local Notification reminders (needs UX + timing design, still
+  optional per PRD); queued *audio* (text queue only — transcription needs network)
 
 ## Phase 8 — QA & polish
 

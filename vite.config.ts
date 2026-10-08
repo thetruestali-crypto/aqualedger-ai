@@ -47,6 +47,9 @@ export default defineConfig(() => {
           // App-shell offline: cache static assets; API/data stay in IndexedDB.
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
           navigateFallback: 'index.html',
+          // Take control of open pages so the first offline reload already works.
+          skipWaiting: true,
+          clientsClaim: true,
         },
       }),
     ],

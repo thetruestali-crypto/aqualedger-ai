@@ -19,9 +19,20 @@ import {
   Edit3,
   Square,
   Keyboard,
+  Clock,
+  WifiOff,
+  Trash2,
 } from 'lucide-react';
 import { Transaction, AIAnalysisResult, CompanySettings } from '../types';
 import { formatToman, formatTomanCompact, toJalaliDate, toPersianDigits } from '../utils/formatters';
+import { fallbackAnalyzeTransaction } from '../../server/fallbackParser';
+import { finalizeAnalysis } from '../../server/suspicion';
+import {
+  enqueueAIRequest,
+  listAIQueue,
+  removeAIRequest,
+  type QueuedAIRequest,
+} from '../data/outbox';
 
 interface SmartQuickEntryProps {
   onSaveTransaction: (tx: Transaction) => void;
@@ -77,7 +88,12 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
   const [loadingLabel, setLoadingLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AIAnalysisResult | null>(null);
+  const [analysisSource, setAnalysisSource] = useState<'server' | 'local' | null>(null);
   const [manualMode, setManualMode] = useState(false);
+  const [pendingList, setPendingList] = useState<QueuedAIRequest[]>([]);
+  const [isOffline, setIsOffline] = useState(
+    typeof navigator !== 'undefined' && 'onLine' in navigator ? !navigator.onLine : false,
+  );
 
   // Editable fields on analysis preview
   const [editAmount, setEditAmount] = useState<number>(0);
@@ -196,6 +212,30 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
       micStreamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
+
+  // Offline queue bookkeeping: track connectivity + list pending requests.
+  const refreshPending = async () => {
+    try {
+      setPendingList(await listAIQueue());
+    } catch {
+      // IndexedDB unavailable (older browser): queue silently disabled.
+    }
+  };
+  useEffect(() => {
+    void refreshPending();
+    const onOnline = () => {
+      setIsOffline(false);
+      void refreshPending();
+    };
+    const onOffline = () => setIsOffline(true);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const toggleListening = () => {
     if (!speechSupported) {
       setError('مرورگر شما از ورودی صوتی پشتیبانی نمی‌کند. لطفاً متن را تایپ کنید.');
@@ -232,13 +272,32 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
     ...(typicalAmount && typicalAmount > 0 ? { typicalAmount: Math.round(typicalAmount) } : {}),
   });
 
-  const handleAnalyze = async () => {
-    if (!inputText.trim()) {
+  /** Local rule-based parse (no network): lower accuracy, always available. */
+  const analyzeLocally = (text: string): boolean => {
+    const raw = fallbackAnalyzeTransaction(text, { bossName: settings.bossName });
+    const final = finalizeAnalysis(raw, {
+      ...(typicalAmount && typicalAmount > 0 ? { typicalAmount: Math.round(typicalAmount) } : {}),
+    });
+    if (!final.ok) {
+      setError('تحلیل محلی ناموفق بود. لطفاً دستی ثبت کنید.');
+      return false;
+    }
+    applyAnalysisResult(final.value as AIAnalysisResult);
+    setAnalysisSource('local');
+    return true;
+  };
+
+  const handleAnalyze = async (overrideText?: string) => {
+    const text = (overrideText ?? inputText).trim();
+    if (!text) {
       setError('لطفاً ابتدا متنی را بنویسید یا صدایتان را ضبط کنید.');
       return;
     }
-    if (typeof navigator !== 'undefined' && 'onLine' in navigator && !navigator.onLine) {
-      setError('به نظر می‌رسد آفلاین هستید؛ تحلیل هوشمند نیاز به اینترنت دارد. می‌توانید فعلاً دستی ثبت کنید.');
+    // Fully offline: parse on-device so basic entry keeps working (FR-12).
+    if (isOffline) {
+      setError(null);
+      setAnalysisResult(null);
+      analyzeLocally(text);
       return;
     }
 
@@ -246,6 +305,7 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
     setLoadingLabel('در حال تحلیل هوشمند...');
     setError(null);
     setAnalysisResult(null);
+    setAnalysisSource(null);
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), ANALYSIS_TIMEOUT_MS);
@@ -254,7 +314,7 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: inputText.trim(),
+          text,
           context: requestContext(),
         }),
         signal: ctrl.signal,
@@ -267,8 +327,23 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
 
       const data: AIAnalysisResult = await response.json();
       applyAnalysisResult(data);
+      setAnalysisSource('server');
     } catch (err: any) {
       console.error('Analysis error:', err);
+      const networkDown =
+        err?.name === 'TypeError' || /failed to fetch|networkerror|load failed/i.test(err?.message || '');
+      if (networkDown) {
+        // Queue for later + offer the instant local parse (FR-12).
+        try {
+          await enqueueAIRequest(text, requestContext());
+          await refreshPending();
+        } catch {
+          // queue unavailable; fall through to local parse
+        }
+        setError('ارتباط قطع شد؛ درخواست در صف آفلاین ذخیره شد. می‌توانید همین حالا تحلیل محلی بگیرید یا دستی ثبت کنید.');
+        analyzeLocally(text);
+        return;
+      }
       setError(
         err?.name === 'AbortError'
           ? 'پاسخ طول کشید؛ دوباره تلاش کنید یا دستی ثبت کنید.'
@@ -279,6 +354,18 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
       setIsLoading(false);
       setLoadingLabel('');
     }
+  };
+
+  const handleRetryPending = async (item: QueuedAIRequest) => {
+    setInputText(item.text);
+    await removeAIRequest(item.id);
+    await refreshPending();
+    await handleAnalyze(item.text);
+  };
+
+  const handleDeletePending = async (id: string) => {
+    await removeAIRequest(id);
+    await refreshPending();
   };
 
   // ---- Voice via MediaRecorder -> POST /api/analyze-audio (primary) ----
@@ -382,6 +469,7 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
       }
       const data: AIAnalysisResult = await response.json();
       applyAnalysisResult(data);
+      setAnalysisSource('server');
     } catch (err: any) {
       console.error('Audio analysis error:', err);
       setError(
@@ -565,7 +653,7 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
 
             <button
               type="button"
-              onClick={handleAnalyze}
+              onClick={() => void handleAnalyze()}
               disabled={isLoading || !inputText.trim()}
               className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-sm shadow-lg shadow-cyan-600/30 transition-all active:scale-95"
             >
@@ -586,6 +674,71 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
           <p className="text-[11px] text-slate-500 leading-relaxed">
             🔒 حریم خصوصی: صدا فقط برای تبدیل به متن به سرور ارسال می‌شود و ذخیره نمی‌شود.
           </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {isOffline && (
+              <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-950/60 border border-amber-800 text-amber-300">
+                <WifiOff className="w-4 h-4" />
+                آفلاین هستید — تحلیل محلی انجام می‌شود
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (!inputText.trim()) {
+                  setError('لطفاً ابتدا متنی را بنویسید.');
+                  return;
+                }
+                setError(null);
+                setAnalysisResult(null);
+                analyzeLocally(inputText.trim());
+              }}
+              disabled={isLoading || !inputText.trim()}
+              className="text-[11px] text-slate-400 hover:text-cyan-300 underline underline-offset-4 disabled:opacity-50"
+              title="تحلیل بدون اینترنت با موتور محلی (دقت کمتر، بدون هزینه)"
+            >
+              تحلیل محلی بدون اینترنت
+            </button>
+            {pendingList.length > 0 && (
+              <span className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                {toPersianDigits(pendingList.length)} درخواست در صف آفلاین
+              </span>
+            )}
+          </div>
+
+          {/* Pending offline queue */}
+          {pendingList.length > 0 && (
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-2">
+              <p className="text-[11px] font-bold text-slate-300">
+                صف آفلاین — با اتصال به اینترنت دوباره ارسال کنید:
+              </p>
+              {pendingList.map((q) => (
+                <div
+                  key={q.id}
+                  className="flex items-center justify-between gap-2 bg-slate-900 rounded-lg px-3 py-2 border border-slate-800"
+                >
+                  <p className="text-[11px] text-slate-300 truncate flex-1">«{q.text}»</p>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => void handleRetryPending(q)}
+                      disabled={isLoading || isOffline}
+                      className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50"
+                    >
+                      ارسال مجدد
+                    </button>
+                    <button
+                      onClick={() => void handleDeletePending(q.id)}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400"
+                      aria-label="حذف از صف"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Error display */}
           {error && (
@@ -676,6 +829,7 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
             {typeof analysisResult.confidence === 'number' && (
               <p className="text-[11px] text-slate-400 mt-1">
                 اطمینان تحلیل: {toPersianDigits(Math.round(analysisResult.confidence * 100))}٪
+                {analysisSource === 'local' && ' (تحلیل محلی آفلاین — با اتصال، دقیق‌تر بررسی کنید)'}
               </p>
             )}
           </div>

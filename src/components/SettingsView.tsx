@@ -15,6 +15,7 @@ import {
 import { CompanySettings } from '../types';
 import { formatToman, toPersianDigits } from '../utils/formatters';
 import { computeBaseSalaryAccrued } from '../domain/financialEngine';
+import { useInstallPrompt } from '../pwa/install';
 
 interface SettingsViewProps {
   settings: CompanySettings;
@@ -35,6 +36,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [importStatus, setImportStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const { canInstall, isInstalled, promptInstall } = useInstallPrompt();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -367,6 +369,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <span>{importStatus.message}</span>
           </div>
         )}
+
+        {/* PWA install */}
+        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <span className="text-slate-200 font-bold block mb-1">نصب برنامه روی گوشی</span>
+            <span className="text-slate-500 text-[11px] leading-relaxed block">
+              {isInstalled
+                ? 'برنامه نصب شده و آفلاین هم کار می‌کند.'
+                : 'با نصب، آیکون AquaLedger به صفحه اصلی اضافه می‌شود و بدون اینترنت باز می‌شود.'}
+            </span>
+          </div>
+          {isInstalled ? (
+            <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-300 shrink-0">
+              <CheckCircle2 className="w-4 h-4" />
+              نصب شده
+            </span>
+          ) : canInstall ? (
+            <button
+              type="button"
+              onClick={() => void promptInstall()}
+              className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shrink-0"
+            >
+              نصب برنامه
+            </button>
+          ) : (
+            <span className="text-[11px] text-slate-500 shrink-0">
+              از منوی مرورگر گزینه «Add to Home screen» را بزنید.
+            </span>
+          )}
+        </div>
       </form>
     </div>
   );

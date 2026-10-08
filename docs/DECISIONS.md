@@ -73,3 +73,10 @@
 - **D20. recharts needs `react-is`:** the v3 ESM build imports it but npm does not hoist
   it; added explicitly (`react-is@^19.3.0`). Reports stay out of the mobile bottom bar
   (6 slots per spec) — entry is the dashboard button + desktop tab.
+- **D21. Offline AI = same pipeline, both sides:** the client bundles `fallbackParser` +
+  `suspicion` (both pure, no node APIs) so local parse applies identical rules as the
+  server. Failed network requests enqueue the *text* (audio transcription inherently
+  needs network); retry is manual and explicit — no surprise AI costs on reconnect.
+- **D22. SW takes control immediately:** `skipWaiting` + `clientsClaim` so the first
+  offline reload already serves the shell. Fonts are self-hosted (arabic 400/500/700/800
+  + latin 400/700); Google Fonts links removed — the UI is now fully offline-capable.
