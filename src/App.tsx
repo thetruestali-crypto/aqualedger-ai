@@ -17,6 +17,7 @@ import { AppStoreProvider, useAppStore } from './state/store';
 import { matchClientId } from './state/transitions';
 import { validateBackupPayload, serializeBackup, backupFileName } from './data/backup';
 import { toPersianDigits } from './lib/format';
+import { typicalAmount } from './domain/profit';
 import { buildServiceLogFromTransaction } from './domain/serviceLog';
 import { needsMonthlyAccrual, buildSalaryAccrualTx } from './domain/salary';
 import type { BackupPayload } from './data/db';
@@ -257,8 +258,9 @@ function Shell() {
 
         {activeTab === 'quick-entry' && (
           <SmartQuickEntry
-            onSaveTransaction={handleSaveTransaction}
+            onSaveTransaction={(tx) => void handleSaveTransaction(tx)}
             settings={settings}
+            typicalAmount={typicalAmount(transactions)}
           />
         )}
 

@@ -7,6 +7,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Building2,
   Users,
   Wrench,
@@ -16,6 +17,8 @@ import {
   HelpCircle,
   RefreshCw,
   Edit3,
+  Square,
+  Keyboard,
 } from 'lucide-react';
 import { Transaction, AIAnalysisResult, CompanySettings } from '../types';
 import { formatToman, formatTomanCompact, toJalaliDate, toPersianDigits } from '../utils/formatters';
@@ -23,16 +26,55 @@ import { formatToman, formatTomanCompact, toJalaliDate, toPersianDigits } from '
 interface SmartQuickEntryProps {
   onSaveTransaction: (tx: Transaction) => void;
   settings: CompanySettings;
+  /** Median of recent totals; sent to the server for >10x outlier flags. */
+  typicalAmount?: number;
 }
+
+const STREAM_LABELS: Record<string, string> = {
+  company: 'شرکتی (رئیس)',
+  field: 'میدانی (مشتری)',
+};
+
+const TX_TYPE_LABELS: Record<string, string> = {
+  company_expense_out_of_pocket: 'خرید از جیب برای شرکت',
+  boss_advance_received: 'مساعده از رئیس',
+  salary_payout: 'واریز حقوق',
+  salary_accrual: 'ثبت حقوق ماه (یادداشت)',
+  client_payment_received: 'دریافت از مشتری',
+  client_receivable: 'طلب از مشتری (نسیه)',
+  client_part_cost: 'هزینه قطعه برای مشتری',
+  technician_tool_expense: 'ابزار شخصی',
+  other: 'سایر',
+};
+
+const PAY_METHOD_LABELS: Record<string, string> = {
+  cash: 'نقدی',
+  card_to_card: 'کارت به کارت',
+  credit: 'نسیه / طلب',
+  pos: 'پوز',
+  cheque: 'چک',
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  boss: 'رئیس / شرکت',
+  client: 'مشتری بیرونی',
+  self: 'شخصی',
+};
+
+const ANALYSIS_TIMEOUT_MS = 30_000;
 
 export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
   onSaveTransaction,
   settings,
+  typicalAmount,
 }) => {
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioSupported, setAudioSupported] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AIAnalysisResult | null>(null);
   const [manualMode, setManualMode] = useState(false);
@@ -42,8 +84,15 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
   const [editPaid, setEditPaid] = useState<number>(0);
   const [editPartyName, setEditPartyName] = useState<string>('');
   const [editCategory, setEditCategory] = useState<string>('');
+  const [editStream, setEditStream] = useState<'company' | 'field'>('company');
+  const [editTxType, setEditTxType] = useState<string>('company_expense_out_of_pocket');
+  const [editPayMethod, setEditPayMethod] = useState<string>('cash');
+  const [editRole, setEditRole] = useState<string>('boss');
 
   const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const micStreamRef = useRef<MediaStream | null>(null);
 
   // Ready-to-use sample phrases typical for Persian water technicians
   const samplePrompts = [
@@ -136,6 +185,17 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
     };
   }, []);
 
+  // Detect server-side voice (MediaRecorder upload) support.
+  useEffect(() => {
+    const ok =
+      typeof window !== 'undefined' &&
+      typeof MediaRecorder !== 'undefined' &&
+      !!navigator.mediaDevices?.getUserMedia;
+    setAudioSupported(ok);
+    return () => {
+      micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
   const toggleListening = () => {
     if (!speechSupported) {
       setError('مرورگر شما از ورودی صوتی پشتیبانی نمی‌کند. لطفاً متن را تایپ کنید.');
@@ -154,27 +214,50 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
     }
   };
 
+  const applyAnalysisResult = (data: AIAnalysisResult) => {
+    setAnalysisResult(data);
+    setEditAmount(data.totalAmount || 0);
+    setEditPaid(data.paidAmount || 0);
+    setEditPartyName(data.party?.name || '');
+    setEditCategory(data.category || '');
+    setEditStream(data.streamType === 'field' ? 'field' : 'company');
+    setEditTxType(data.transactionType || 'other');
+    setEditPayMethod(data.paymentMethod || 'cash');
+    setEditRole(data.party?.role || 'boss');
+  };
+
+  const requestContext = () => ({
+    bossName: settings.bossName,
+    companyName: settings.companyName,
+    ...(typicalAmount && typicalAmount > 0 ? { typicalAmount: Math.round(typicalAmount) } : {}),
+  });
+
   const handleAnalyze = async () => {
     if (!inputText.trim()) {
       setError('لطفاً ابتدا متنی را بنویسید یا صدایتان را ضبط کنید.');
       return;
     }
+    if (typeof navigator !== 'undefined' && 'onLine' in navigator && !navigator.onLine) {
+      setError('به نظر می‌رسد آفلاین هستید؛ تحلیل هوشمند نیاز به اینترنت دارد. می‌توانید فعلاً دستی ثبت کنید.');
+      return;
+    }
 
     setIsLoading(true);
+    setLoadingLabel('در حال تحلیل هوشمند...');
     setError(null);
     setAnalysisResult(null);
 
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ANALYSIS_TIMEOUT_MS);
     try {
       const response = await fetch('/api/analyze-transaction', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: inputText.trim(),
-          context: {
-            bossName: settings.bossName,
-            companyName: settings.companyName,
-          },
+          context: requestContext(),
         }),
+        signal: ctrl.signal,
       });
 
       if (!response.ok) {
@@ -183,16 +266,141 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
       }
 
       const data: AIAnalysisResult = await response.json();
-      setAnalysisResult(data);
-      setEditAmount(data.totalAmount || 0);
-      setEditPaid(data.paidAmount || 0);
-      setEditPartyName(data.party?.name || '');
-      setEditCategory(data.category || '');
+      applyAnalysisResult(data);
     } catch (err: any) {
       console.error('Analysis error:', err);
-      setError(err.message || 'خطا در پردازش اطلاعات توسط هوش مصنوعی. لطفاً مجدداً امتحان کنید.');
+      setError(
+        err?.name === 'AbortError'
+          ? 'پاسخ طول کشید؛ دوباره تلاش کنید یا دستی ثبت کنید.'
+          : err.message || 'خطا در پردازش اطلاعات توسط هوش مصنوعی. لطفاً مجدداً امتحان کنید.',
+      );
     } finally {
+      clearTimeout(timer);
       setIsLoading(false);
+      setLoadingLabel('');
+    }
+  };
+
+  // ---- Voice via MediaRecorder -> POST /api/analyze-audio (primary) ----
+
+  const stopMicTracks = () => {
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
+  };
+
+  const startAudioRecording = async () => {
+    if (!audioSupported) {
+      // Fall back to browser speech recognition, else the text box.
+      if (speechSupported) {
+        toggleListening();
+      } else {
+        setError('ضبط صدا در این مرورگر پشتیبانی نمی‌شود. لطفاً متن را تایپ کنید.');
+      }
+      return;
+    }
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+      chunksRef.current = [];
+      const rec = new MediaRecorder(stream);
+      mediaRecorderRef.current = rec;
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      rec.onstop = () => {
+        void sendAudioToServer();
+      };
+      rec.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Mic access failed:', err);
+      setError('دسترسی به میکروفن داده نشد. از تنظیمات مرورگر اجازه بدهید یا متن را تایپ کنید.');
+    }
+  };
+
+  const stopAudioRecording = () => {
+    try {
+      mediaRecorderRef.current?.stop();
+    } catch (err) {
+      console.error('Recorder stop failed:', err);
+    } finally {
+      setIsRecording(false);
+    }
+  };
+
+  const blobToBase64 = (blob: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const comma = result.indexOf(',');
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = () => reject(new Error('audio-encode'));
+      reader.readAsDataURL(blob);
+    });
+
+  const sendAudioToServer = async () => {
+    const chunks = chunksRef.current;
+    chunksRef.current = [];
+    stopMicTracks();
+    if (chunks.length === 0) {
+      setError('صدایی ضبط نشد. دوباره تلاش کنید.');
+      return;
+    }
+    const blob = new Blob(chunks, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
+    setIsLoading(true);
+    setLoadingLabel('در حال تبدیل گفتار به سند مالی...');
+    setError(null);
+    setAnalysisResult(null);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ANALYSIS_TIMEOUT_MS * 2);
+    try {
+      const audioBase64 = await blobToBase64(blob);
+      const response = await fetch('/api/analyze-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audioBase64,
+          mimeType: blob.type || 'audio/webm',
+          context: requestContext(),
+        }),
+        signal: ctrl.signal,
+      });
+      if (response.status === 503 && speechSupported) {
+        // No server key: fall back to on-device browser recognition.
+        setIsLoading(false);
+        setLoadingLabel('');
+        setError('سرویس صوتی سرور فعال نیست؛ از گفتار مرورگر استفاده می‌شود.');
+        toggleListening();
+        return;
+      }
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'خطا در تحلیل فایل صوتی.');
+      }
+      const data: AIAnalysisResult = await response.json();
+      applyAnalysisResult(data);
+    } catch (err: any) {
+      console.error('Audio analysis error:', err);
+      setError(
+        err?.name === 'AbortError'
+          ? 'پاسخ طول کشید؛ دوباره تلاش کنید یا متن را بنویسید.'
+          : err.message || 'خطا در تحلیل فایل صوتی. لطفاً دوباره تلاش کنید یا متن را بنویسید.',
+      );
+    } finally {
+      clearTimeout(timer);
+      setIsLoading(false);
+      setLoadingLabel('');
+    }
+  };
+
+  const handleMicButton = () => {
+    if (isRecording) {
+      stopAudioRecording();
+    } else {
+      void startAudioRecording();
     }
   };
 
@@ -201,13 +409,15 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
 
     const remaining = Math.max(0, editAmount - editPaid);
 
-    // Compute updated financial impact based on user edits
+    // Recompute the financial impact from the (possibly overridden) stream/type.
     let userBalanceChange = analysisResult.financialImpact?.userBalanceChange || 0;
-    if (analysisResult.streamType === 'company') {
-      if (analysisResult.transactionType === 'company_expense_out_of_pocket') {
+    if (editStream === 'company') {
+      if (editTxType === 'company_expense_out_of_pocket') {
         userBalanceChange = editAmount; // طلبکار شدن کاربر به اندازه خرج کرده
-      } else if (analysisResult.transactionType === 'boss_advance_received') {
+      } else if (editTxType === 'boss_advance_received' || editTxType === 'salary_payout') {
         userBalanceChange = -editAmount; // کسر طلب کاربر به اندازه دریافتی
+      } else {
+        userBalanceChange = 0; // salary_accrual and others are memos
       }
     } else {
       if (remaining > 0) {
@@ -219,10 +429,10 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
       id: `tx-${Date.now()}`,
       date: new Date().toISOString(),
       jalaliDate: toJalaliDate(),
-      streamType: analysisResult.streamType,
-      transactionType: analysisResult.transactionType,
+      streamType: editStream,
+      transactionType: (editTxType as Transaction['transactionType']) || analysisResult.transactionType,
       party: {
-        role: analysisResult.party.role,
+        role: (editRole as Transaction['party']['role']) || analysisResult.party.role,
         name: editPartyName || analysisResult.party.name,
         phone: analysisResult.party.phone,
         address: analysisResult.party.address,
@@ -235,13 +445,13 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
         userBalanceChange,
         profitAmount: analysisResult.financialImpact?.profitAmount,
       },
-      paymentMethod: analysisResult.paymentMethod || 'cash',
+      paymentMethod: (editPayMethod as Transaction['paymentMethod']) || analysisResult.paymentMethod,
       category: editCategory || analysisResult.category,
       items: analysisResult.items,
       suggestNextServiceMonths: analysisResult.suggestNextServiceMonths,
       description: analysisResult.description,
       conversationalSummary: analysisResult.conversationalSummary,
-      source: isListening ? 'ai_voice' : 'ai_text',
+      source: isRecording || isListening ? 'ai_voice' : 'ai_text',
       settled: remaining === 0,
     };
 
@@ -308,18 +518,21 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={toggleListening}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all border ${
-                  isListening
+                onClick={handleMicButton}
+                disabled={isLoading}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all border disabled:opacity-50 ${
+                  isRecording || isListening
                     ? 'bg-rose-500 text-white border-rose-400 shadow-lg shadow-rose-500/30 animate-pulse'
                     : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
                 }`}
-                title="شروع ضبط صدا با میکروفن"
+                title="ضبط صدا و تبدیل خودکار به سند مالی"
               >
-                {isListening ? (
+                {isRecording || isListening ? (
                   <>
-                    <MicOff className="w-4 h-4 text-white animate-spin" />
-                    <span>در حال شنیدن صدای شما... (کلیک برای توقف)</span>
+                    <Square className="w-4 h-4 text-white" />
+                    <span>
+                      {isRecording ? 'در حال ضبط... (کلیک برای پایان)' : 'در حال شنیدن... (کلیک برای توقف)'}
+                    </span>
                   </>
                 ) : (
                   <>
@@ -329,11 +542,24 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
                 )}
               </button>
 
-              {isListening && (
+              {(isRecording || isListening) && (
                 <span className="flex items-center gap-1.5 text-xs text-rose-400 font-medium animate-pulse">
                   <span className="w-2 h-2 rounded-full bg-rose-500" />
                   میکروفن فعال است
                 </span>
+              )}
+
+              {speechSupported && audioSupported && !isRecording && !isListening && (
+                <button
+                  type="button"
+                  onClick={toggleListening}
+                  disabled={isLoading}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] text-slate-400 hover:text-slate-200 bg-slate-800/60 border border-slate-700 disabled:opacity-50"
+                  title="تشخیص گفتار مستقیم مرورگر (بدون ارسال صدا)"
+                >
+                  <Keyboard className="w-3.5 h-3.5" />
+                  <span>گفتار مرورگر</span>
+                </button>
               )}
             </div>
 
@@ -346,7 +572,7 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
               {isLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>در حال تحلیل هوشمند...</span>
+                  <span>{loadingLabel || 'در حال تحلیل هوشمند...'}</span>
                 </>
               ) : (
                 <>
@@ -356,6 +582,10 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
               )}
             </button>
           </div>
+
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            🔒 حریم خصوصی: صدا فقط برای تبدیل به متن به سرور ارسال می‌شود و ذخیره نمی‌شود.
+          </p>
 
           {/* Error display */}
           {error && (
@@ -422,24 +652,48 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-black border ${
-                  analysisResult.streamType === 'company'
-                    ? 'bg-blue-950 text-blue-300 border-blue-700'
-                    : 'bg-emerald-950 text-emerald-300 border-emerald-700'
-                }`}
+              <label className="text-[11px] font-bold text-slate-400">جریان:</label>
+              <select
+                value={editStream}
+                onChange={(e) => setEditStream(e.target.value as 'company' | 'field')}
+                className="px-3 py-1.5 rounded-full text-xs font-black border bg-slate-900 text-cyan-300 border-cyan-700"
+                title="تغییر دستی جریان حساب"
               >
-                {analysisResult.streamType === 'company' ? 'جریان شرکتی (رئیس)' : 'جریان میدانی (مشتری)'}
-              </span>
+                {Object.entries(STREAM_LABELS).map(([v, l]) => (
+                  <option key={v} value={v}>
+                    {l}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
           {/* Conversational summary highlight */}
-          <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-800/60 mb-5">
+          <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-800/60 mb-4">
             <p className="text-sm font-semibold text-cyan-200 leading-relaxed">
               💡 {analysisResult.conversationalSummary}
             </p>
+            {typeof analysisResult.confidence === 'number' && (
+              <p className="text-[11px] text-slate-400 mt-1">
+                اطمینان تحلیل: {toPersianDigits(Math.round(analysisResult.confidence * 100))}٪
+              </p>
+            )}
           </div>
+
+          {/* Warnings (suspicious amounts etc.) */}
+          {analysisResult.warnings && analysisResult.warnings.length > 0 && (
+            <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-800/60 mb-4">
+              {analysisResult.warnings.map((w, i) => (
+                <p
+                  key={i}
+                  className="text-xs font-bold text-amber-300 leading-relaxed flex items-start gap-1.5"
+                >
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{w}</span>
+                </p>
+              ))}
+            </div>
+          )}
 
           {/* Editable Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
@@ -511,6 +765,58 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
               <span className="text-[11px] text-slate-500 mt-1 block">
                 روش پرداخت: {analysisResult.paymentMethod || 'نقدی'}
               </span>
+            </div>
+          </div>
+
+          {/* Type / payment / role overrides */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+            <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800">
+              <label className="text-[11px] font-bold text-slate-400 block mb-1.5">
+                نوع تراکنش
+              </label>
+              <select
+                value={editTxType}
+                onChange={(e) => setEditTxType(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded-lg p-2 text-white font-bold text-xs"
+              >
+                {Object.entries(TX_TYPE_LABELS).map(([v, l]) => (
+                  <option key={v} value={v}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800">
+              <label className="text-[11px] font-bold text-slate-400 block mb-1.5">
+                روش پرداخت
+              </label>
+              <select
+                value={editPayMethod}
+                onChange={(e) => setEditPayMethod(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded-lg p-2 text-white font-bold text-xs"
+              >
+                {Object.entries(PAY_METHOD_LABELS).map(([v, l]) => (
+                  <option key={v} value={v}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800">
+              <label className="text-[11px] font-bold text-slate-400 block mb-1.5">
+                نقش طرف حساب
+              </label>
+              <select
+                value={editRole}
+                onChange={(e) => setEditRole(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 focus:border-cyan-500 rounded-lg p-2 text-white font-bold text-xs"
+              >
+                {Object.entries(ROLE_LABELS).map(([v, l]) => (
+                  <option key={v} value={v}>
+                    {l}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

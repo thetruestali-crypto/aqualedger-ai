@@ -162,6 +162,8 @@ export const analyzeTransactionRequestSchema = z.object({
     .object({
       bossName: z.string().max(200).optional(),
       companyName: z.string().max(200).optional(),
+      /** Client-computed median of recent totals; server flags >10x as suspicious. */
+      typicalAmount: z.number().int().positive().optional(),
     })
     .optional(),
 });
@@ -174,6 +176,7 @@ export const analyzeAudioRequestSchema = z.object({
     .object({
       bossName: z.string().max(200).optional(),
       companyName: z.string().max(200).optional(),
+      typicalAmount: z.number().int().positive().optional(),
     })
     .optional(),
 });

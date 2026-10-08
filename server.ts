@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { analyzeWithGemini, analyzeAudioWithGemini, hasGeminiKey } from './server/gemini.js';
 import { fallbackAnalyzeTransaction } from './server/fallbackParser.js';
+import { finalizeAnalysis } from './server/suspicion.js';
 import { aiRateLimiter } from './server/rateLimit.js';
 import {
   analyzeTransactionRequestSchema,
@@ -30,19 +31,28 @@ app.post('/api/analyze-transaction', aiRateLimiter, async (req, res) => {
     return res.status(400).json({ error: 'متن ورودی الزامی است.' });
   }
   const { text, context } = parsed.data;
+  const suspicionCtx = { typicalAmount: context?.typicalAmount };
 
   // No key -> go straight to the rule-based parser (app stays usable offline/without key).
   if (!hasGeminiKey()) {
-    return res.json(fallbackAnalyzeTransaction(text, context ?? {}));
+    const final = finalizeAnalysis(fallbackAnalyzeTransaction(text, context ?? {}), suspicionCtx);
+    if (!final.ok) {
+      return res.status(500).json({ error: 'خطا در تحلیل متن ورودی. لطفاً اطلاعات را مجدداً ارسال کنید.' });
+    }
+    return res.json(final.value);
   }
 
   try {
     const result = await analyzeWithGemini(text, (context ?? {}) as Record<string, unknown>);
-    return res.json(result);
+    const final = finalizeAnalysis(result, suspicionCtx);
+    if (!final.ok) throw new Error('finalize failed');
+    return res.json(final.value);
   } catch (error) {
     console.error('Gemini API call failed, using rule-based fallback parser.');
     try {
-      return res.json(fallbackAnalyzeTransaction(text, context ?? {}));
+      const final = finalizeAnalysis(fallbackAnalyzeTransaction(text, context ?? {}), suspicionCtx);
+      if (!final.ok) throw new Error('finalize failed');
+      return res.json(final.value);
     } catch {
       return res.status(500).json({
         error: 'خطا در تحلیل متن ورودی. لطفاً اطلاعات را مجدداً ارسال کنید.',
@@ -70,7 +80,9 @@ app.post('/api/analyze-audio', aiRateLimiter, async (req, res) => {
       mimeType,
       (context ?? {}) as Record<string, unknown>,
     );
-    return res.json(result);
+    const final = finalizeAnalysis(result, { typicalAmount: context?.typicalAmount });
+    if (!final.ok) throw new Error('finalize failed');
+    return res.json(final.value);
   } catch (error) {
     console.error('Gemini audio analysis failed.');
     return res.status(500).json({

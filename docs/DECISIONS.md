@@ -59,3 +59,10 @@
 - **D16. Durability race (caught by the happy-path E2E):** reloading inside the 500ms
   persist debounce lost the last action. Fixed with a `visibilitychange`/`pagehide`
   flush of the latest snapshot (best-effort) — debounce retained for batching.
+- **D17. Suspicion is deterministic and server-side, typical is client-side:** the server
+  owns absolute rules (zero, >500M Toman, paid>total normalize) while the >10x rule uses
+  a client-computed median (`typicalAmount`) passed in context — the stateless server
+  cannot know user history. `finalizeAnalysis` runs on Gemini AND fallback output alike.
+- **D18. Voice chain (no dead ends):** MediaRecorder upload → on 503/no-key auto-fallback
+  to Web Speech fa-IR → if unsupported, a clear message + the text box stays. Manual entry
+  is never gated on AI, network, or microphone.

@@ -1,6 +1,6 @@
 // Profit domain (FR-08): separate merchandise profit from labor fees.
 // Per-part profit = (sellPrice - buyPrice) x qty. Labor is reported apart.
-import type { ServiceLog, TransactionItem } from '../types';
+import type { ServiceLog, Transaction, TransactionItem } from '../types';
 import { computePartProfit } from './financialEngine';
 
 export interface ServiceFinancials {
@@ -75,3 +75,20 @@ export function splitTransactionItems(items: TransactionItem[] | undefined): Ser
 }
 
 export { computePartProfit };
+
+/**
+ * Typical amount = median of the most recent totals (default last 20).
+ * Sent to the server so it can flag >10x outliers (FR-01). Zero when empty.
+ */
+export function typicalAmount(transactions: Transaction[], limit = 20): number {
+  const totals = transactions
+    .slice(0, Math.max(0, limit))
+    .map((t) => t.totalAmount)
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+  if (totals.length === 0) return 0;
+  const mid = Math.floor(totals.length / 2);
+  return totals.length % 2 === 1
+    ? totals[mid]
+    : Math.round((totals[mid - 1] + totals[mid]) / 2);
+}

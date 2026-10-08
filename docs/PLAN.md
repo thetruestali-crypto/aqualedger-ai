@@ -95,13 +95,20 @@ missing `GEMINI_MODEL/PORT/NODE_ENV/DISABLE_HMR` · scripts missing `test`, `tes
 - [ ] Deferred (honest): local Notification reminders → Phase 7 (needs PWA plumbing);
   invoice edit/delete UI; reports/charts → Phase 6
 
-## Phase 5 — AI (FR-01/02/10)
+## Phase 5 — AI: flags, override, voice (DONE 2026-10-08)
 
-- [ ] Server: Gemini schema + system instruction (Persian number rules), zod validate, retry 2x/600ms,
-  fallback parser, rate limiting; suspicious-value flags (>10x typical, zero)
-- [ ] SmartQuickEntry: text + mic, stream split w/ override, preview/edit, optimistic <2s UX
-- [ ] Voice: MediaRecorder → `/api/analyze-audio` → same result; Web Speech fa-IR fallback;
-  privacy notice (sent for transcription, not stored); manual entry never blocked
+- [x] Server: deterministic `finalizeAnalysis` on every result (zero / >500M / paid>total
+  normalize / >10x `typicalAmount` from client context + confidence penalty); zod re-check;
+  retry/rate-limit/fallback already in place
+- [x] SmartQuickEntry: stream/type/payment/role override selects with balance recompute,
+  warnings box + confidence %, 30s timeout, offline guard, `typicalAmount` in context
+- [x] Voice: MediaRecorder primary → `/api/analyze-audio` (same preview/edit flow);
+  503/no-key auto-falls-back to Web Speech fa-IR; one-line privacy notice; manual entry
+  never blocked
+- [x] Gate: `lint` ✅ `test` (85 unit) ✅ `build` ✅ + 2 E2E ✅; server curl-verified
+  (10x flag, 400/503 audio gates)
+- [ ] Deferred (honest): real Gemini audio path untested (no key in CI); E2E mic
+  recording (needs fake media device); offline AI queue → Phase 7
 
 ## Phase 6 — Reports & export (FR-11 + extras)
 
