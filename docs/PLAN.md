@@ -139,24 +139,37 @@ missing `GEMINI_MODEL/PORT/NODE_ENV/DISABLE_HMR` · scripts missing `test`, `tes
 - [ ] Deferred (honest): local Notification reminders (needs UX + timing design, still
   optional per PRD); queued *audio* (text queue only — transcription needs network)
 
-## Phase 8 — QA & polish
+## Phase 8 — QA & polish (DONE 2026-10-08)
 
-- [ ] Playwright E2E (type → preview → edit → confirm → balance → reload persists)
-- [ ] README (setup/env/run/deploy), final PRD checklist review, honest gap list
+- [x] E2E extended with the preview **edit** step (type → preview → edit → confirm →
+  balance → reload persists); 3 Chromium specs green
+- [x] README rewritten (setup/env/run/deploy, architecture, FR coverage, verification,
+  honest gaps)
+- [x] Final PRD review + honest gap list (below)
+- [x] Gate: `lint` ✅ `test` (95 unit) ✅ `build` ✅ + 3 E2E ✅
 
-## FR coverage tracker
+## FR coverage tracker (final, verified)
 
-| FR | Status | Notes |
-|----|--------|-------|
-| FR-01 NLP entry | partial | text+WebSpeech+preview exist; needs zod/suspicious flags/tests |
-| FR-02 stream split | partial | exists; needs override + tests |
-| FR-03 boss ledger | partial | exists; needs Dexie + live header (have) |
-| FR-04 salary mgmt | partial | base−insurance only; needs overtime/absence/accrual |
-| FR-05 client ledger | partial | exists; needs per-invoice cards/filters/polish |
-| FR-06 CRM | partial | exists; needs breakdown history/search polish |
-| FR-07 inventory | partial | CRUD exists; needs atomic decrement + alerts + tests |
-| FR-08 part profit | missing | needs engine + report split + tests |
-| FR-09 reminders | partial | dates exist; needs engine + due list + tests |
-| FR-10 voice | partial | WebSpeech only; needs MediaRecorder + `/api/analyze-audio` |
-| FR-11 reports | missing | needs charts + KPIs |
-| FR-12 offline PWA | missing | needs Dexie + SW + queue + install prompt |
+| FR | Status | Evidence |
+|----|--------|----------|
+| FR-01 NLP entry + flags | ✅ done | text/mic → zod-validated JSON, preview/edit, warnings (zero/huge/10x) |
+| FR-02 stream split | ✅ done | auto split + user override (stream/type/payment/role) |
+| FR-03 boss ledger | ✅ done | quick-add ×3, live header balance, WhatsApp statement |
+| FR-04 salary mgmt | ✅ done | base−insurance+overtime−absence, manual + auto month-end accrual memos |
+| FR-05 client ledger | ✅ done* | per-invoice cards, partial settle, aggregate oldest-first, settle action (*no invoice status filter chips) |
+| FR-06 CRM | ✅ done | profile edit, device brand, breakdown history, parts used, creditor/due search |
+| FR-07 inventory | ✅ done | CRUD, atomic auto-decrement on sale, per-part thresholds + alerts |
+| FR-08 part profit | ✅ done | engine split + per-part margins + report charts/table |
+| FR-09 reminders | ✅ done* | 6mo/24mo engine, dashboard overdue/due-soon, client badges (*no local Notification) |
+| FR-10 voice | ✅ done* | MediaRecorder→server, Web Speech fallback, privacy notice (*live Gemini audio path untested — no key) |
+| FR-11 reports | ✅ done* | daily/weekly/monthly, KPIs, cash-flow + part/labor charts, bucket table (*no PDF/custom ranges) |
+| FR-12 offline PWA | ✅ done | SW shell + IndexedDB + AI queue/pending + on-device parse, install prompt, self-hosted font; E2E-verified offline |
+
+## Known gaps (honest, all deferred deliberately)
+
+1. Live Gemini text/audio paths need a real key; CI covers fallback + validation only.
+2. No E2E microphone recording (fake media device needed); audio is never queued offline.
+3. No local-notification reminders, no PDF export, no custom report ranges, no invoice
+   status filter chips, no invoice edit/delete UI.
+4. No cloud sync / auth / multi-user (out of scope; `LedgerStore` interface is sync-ready).
+5. Sub-2s AI latency depends on key/network (fallback path is milliseconds).

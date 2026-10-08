@@ -18,10 +18,15 @@ test('smart entry happy path persists across reload', async ({ page }) => {
   await expect(page.getByText('نتیجه تحلیل سند مالی')).toBeVisible({ timeout: 15000 });
   await expect(page.getByText('۵۸۰,۰۰۰ تومان').first()).toBeVisible();
 
-  // 3. Confirm -> lands on the company ledger showing the new amount.
+  // 2b. Edit the total in the preview before confirming.
+  const totalBox = page.locator('label', { hasText: 'مبلغ کل' }).locator('..').locator('input');
+  await totalBox.fill('600000');
+  await expect(page.getByText('۶۰۰,۰۰۰ تومان').first()).toBeVisible();
+
+  // 3. Confirm -> lands on the company ledger showing the edited amount.
   await page.getByRole('button', { name: 'تایید و ثبت نهایی در دفتر حساب' }).click();
   await expect(page.getByText('ریز فاکتورها و اسناد شرکت')).toBeVisible({ timeout: 15000 });
-  await expect(page.getByText('۵۸۰,۰۰۰ تومان').first()).toBeVisible();
+  await expect(page.getByText('۶۰۰,۰۰۰ تومان').first()).toBeVisible();
 
   // 4. Boss balance reflects the new out-of-pocket expense.
   await expect(page.getByText('شما از').first()).toBeVisible();
@@ -32,5 +37,5 @@ test('smart entry happy path persists across reload', async ({ page }) => {
   await page.reload();
   await expect(page.getByText('داشبورد مالی و تراز تکنسین')).toBeVisible({ timeout: 15000 });
   await page.getByRole('button', { name: 'دفتر حساب رئیس و شرکت' }).click();
-  await expect(page.getByText('۵۸۰,۰۰۰ تومان').first()).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText('۶۰۰,۰۰۰ تومان').first()).toBeVisible({ timeout: 15000 });
 });
