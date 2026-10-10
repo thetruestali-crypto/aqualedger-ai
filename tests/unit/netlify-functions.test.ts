@@ -15,6 +15,16 @@ vi.mock('@/server/gemini', async (importOriginal) => {
   };
 });
 
+// Mock Supabase: strict auth accepts the test token, quota RPC is controllable.
+const { supabaseGetUser, supabaseRpc } = vi.hoisted(() => ({
+  supabaseGetUser: vi.fn(),
+  supabaseRpc: vi.fn(),
+}));
+
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: () => ({ auth: { getUser: supabaseGetUser }, rpc: supabaseRpc }),
+}));
+
 // Phase-A smoke tests for Netlify Functions (no real Gemini key, no Supabase
 // env: requests carry a dummy Bearer token accepted by the transitional
 // auth helper, and analysis falls back to the rule-based parser).
@@ -40,10 +50,15 @@ describe('netlify function: analyze-transaction', () => {
 
   beforeEach(() => {
     delete process.env.GEMINI_API_KEY;
-    delete process.env.SUPABASE_URL;
-    delete process.env.SUPABASE_ANON_KEY;
+    // Strict paths: configured Supabase with a mocked client.
+    process.env.SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_ANON_KEY = 'test-anon-key';
     delete process.env.VITE_SUPABASE_URL;
     delete process.env.VITE_SUPABASE_ANON_KEY;
+    supabaseGetUser.mockReset();
+    supabaseRpc.mockReset();
+    supabaseGetUser.mockResolvedValue({ data: { user: { id: 'test-user' } }, error: null });
+    supabaseRpc.mockResolvedValue({ data: 1, error: null });
   });
 
   afterEach(() => {
@@ -86,6 +101,16 @@ describe('netlify function: analyze-transaction', () => {
     expect(res.status).toBe(400);
     const data = (await res.json()) as Record<string, unknown>;
     expect(data.error).toBe('متن ورودی الزامی است.');
+  });
+
+  it('over daily quota -> 429 Persian error', async () => {
+    supabaseRpc.mockResolvedValueOnce({ data: 201, error: null });
+    const res = await analyzeTransactionHandler(
+      postAnalyze({ text: SAMPLE_TEXT }, 'test-token'),
+    );
+    expect(res.status).toBe(429);
+    const data = (await res.json()) as Record<string, unknown>;
+    expect(data.error).toBe('سهمیه روزانه هوش مصنوعی تمام شد. لطفاً فردا تلاش کنید.');
   });
 });
 
