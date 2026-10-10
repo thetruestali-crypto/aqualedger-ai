@@ -8,7 +8,7 @@ rule-based offline fallback, so the app works with no key and no network.
 ## Run
 
 ```bash
-npm install --legacy-peer-deps   # esbuild peer conflict (pre-existing) needs the flag
+npm install   # .npmrc sets legacy-peer-deps (pre-existing esbuild peer conflict)
 npm run dev          # local Express + Vite middleware, http://localhost:3000
 npm run dev:netlify  # local Netlify runtime (static + Functions), needs `netlify-cli`
 npm run build        # production bundle to dist/ (PWA service worker included)
