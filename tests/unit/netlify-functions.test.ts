@@ -1,6 +1,19 @@
-import { beforeEach, afterEach, describe, expect, it } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import analyzeTransactionHandler from '@/netlify/functions/analyze-transaction';
 import healthHandler from '@/netlify/functions/health';
+
+// Simulate Gemini failure without touching the network: the pipeline must
+// fall back to the rule-based parser (source: fallback) instead of 500.
+vi.mock('@/server/gemini', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('@/server/gemini')>();
+  return {
+    ...orig,
+    hasGeminiKey: () => true,
+    analyzeWithGemini: async () => {
+      throw new Error('mocked Gemini failure');
+    },
+  };
+});
 
 // Phase-A smoke tests for Netlify Functions (no real Gemini key, no Supabase
 // env: requests carry a dummy Bearer token accepted by the transitional
@@ -58,22 +71,14 @@ describe('netlify function: analyze-transaction', () => {
     expect(typeof data.error).toBe('string');
   });
 
-  it('invalid Gemini key -> fallback (no 500)', async () => {
-    process.env.GEMINI_API_KEY = 'invalid-key-for-test';
+  it('Gemini failure -> fallback (no 500, mocked, no network)', async () => {
     const res = await analyzeTransactionHandler(
       postAnalyze({ text: SAMPLE_TEXT }, 'test-token'),
     );
-    // Either Gemini somehow succeeds (unexpected offline) or, far more
-    // likely, the pipeline falls back — but never a bare 500 without Persian error.
-    if (res.status === 200) {
-      const data = (await res.json()) as Record<string, unknown>;
-      expect(data.source).toBe('fallback');
-      expect(data.totalAmount).toBe(580_000);
-    } else {
-      expect(res.status).toBe(500);
-      const data = (await res.json()) as Record<string, unknown>;
-      expect(typeof data.error).toBe('string');
-    }
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as Record<string, unknown>;
+    expect(data.source).toBe('fallback');
+    expect(data.totalAmount).toBe(580_000);
   });
 
   it('empty text -> 400 Persian error', async () => {
