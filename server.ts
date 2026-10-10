@@ -2,14 +2,14 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { analyzeWithGemini, analyzeAudioWithGemini, hasGeminiKey } from './server/gemini.js';
-import { fallbackAnalyzeTransaction } from './server/fallbackParser.js';
-import { finalizeAnalysis } from './server/suspicion.js';
-import { aiRateLimiter } from './server/rateLimit.js';
+import { analyzeWithGemini, analyzeAudioWithGemini, hasGeminiKey } from './server/gemini';
+import { fallbackAnalyzeTransaction } from './server/fallbackParser';
+import { finalizeAnalysis } from './server/suspicion';
+import { aiRateLimiter } from './server/rateLimit';
 import {
   analyzeTransactionRequestSchema,
   analyzeAudioRequestSchema,
-} from './src/types/schemas.js';
+} from './src/types/schemas';
 
 dotenv.config();
 

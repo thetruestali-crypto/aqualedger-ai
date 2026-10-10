@@ -1,7 +1,7 @@
 // Rule-based Persian fallback parser. Runs on the SERVER when Gemini fails
 // or no API key is configured. Pure logic (amounts via shared lib); the only
 // IO is returning a plain object. Also usable offline on the client.
-import { extractTomanAmounts, normalizePersianText } from '../src/lib/persianNumbers.js';
+import { extractTomanAmounts, normalizePersianText } from '../src/lib/persianNumbers';
 
 export interface FallbackAnalysis {
   success: boolean;

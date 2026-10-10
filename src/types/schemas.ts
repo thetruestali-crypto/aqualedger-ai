@@ -57,6 +57,8 @@ export const aiAnalysisResultSchema = z.object({
   conversationalSummary: z.string().max(1000),
   confidence: z.number().min(0).max(1).optional(),
   warnings: z.array(z.string().max(300)).optional(),
+  /** Which engine produced this result (serverless budget: gemini or rule-based fallback). */
+  source: z.enum(['gemini', 'fallback']).optional(),
 });
 
 export type AIAnalysisResultValidated = z.infer<typeof aiAnalysisResultSchema>;
@@ -131,6 +133,8 @@ export const settingsSchema = z.object({
   companyName: z.string().max(200),
   bossName: z.string().max(200),
   bossPhone: z.string().max(30),
+  technicianName: z.string().max(200).optional(),
+  companyLogo: z.string().max(2_000_000).optional(),
   monthlyBaseSalary: z.number().int().nonnegative(),
   salaryPaymentDay: z.number().int().min(1).max(31),
   overtimeHourlyRate: z.number().int().nonnegative(),

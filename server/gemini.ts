@@ -2,7 +2,7 @@
 // response schema, retry + zod validation. Server-side only (API key never
 // reaches the browser).
 import { GoogleGenAI, Type } from '@google/genai';
-import { aiAnalysisResultSchema } from '../src/types/schemas.js';
+import { aiAnalysisResultSchema } from '../src/types/schemas';
 
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
@@ -136,29 +136,46 @@ const RESPONSE_SCHEMA = {
 const MAX_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 600;
 
+/** Per-call budget so Gemini + 2 retries fit inside a ~10s serverless Function. */
+export const GEMINI_TIMEOUT_MS = 4000;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Gemini timeout')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T>;
 }
 
 /** Call Gemini with structured output; validate with zod; retry once on invalid/failure. */
 export async function analyzeWithGemini(
   text: string,
   context: Record<string, unknown> = {},
+  timeoutMs: number = GEMINI_TIMEOUT_MS,
 ): Promise<Record<string, unknown>> {
   const ai = getClient();
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const response = await ai.models.generateContent({
-        model: MODEL,
-        contents: `متن ورودی کاربر جهت ثبت سند حسابداری:\n"${text}"\n\nاطلاعات کمکی زمینه کاربر (در صورت وجود): ${JSON.stringify(context)}`,
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          responseMimeType: 'application/json',
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          responseSchema: RESPONSE_SCHEMA as any,
-        },
-      });
+      const response = await withTimeout(
+        ai.models.generateContent({
+          model: MODEL,
+          contents: `متن ورودی کاربر جهت ثبت سند حسابداری:\n"${text}"\n\nاطلاعات کمکی زمینه کاربر (در صورت وجود): ${JSON.stringify(context)}`,
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+            responseMimeType: 'application/json',
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            responseSchema: RESPONSE_SCHEMA as any,
+          },
+        }),
+        timeoutMs,
+      );
       const raw = response?.text;
       if (!raw) throw new Error('Empty Gemini response');
       const parsed: unknown = JSON.parse(raw.trim());
@@ -178,26 +195,30 @@ export async function analyzeAudioWithGemini(
   audioBase64: string,
   mimeType: string,
   context: Record<string, unknown> = {},
+  timeoutMs: number = GEMINI_TIMEOUT_MS,
 ): Promise<Record<string, unknown>> {
   const ai = getClient();
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const response = await ai.models.generateContent({
-        model: MODEL,
-        contents: [
-          { inlineData: { mimeType, data: audioBase64 } },
-          {
-            text: `این فایل صوتی، گزارش کار یک تکنسین تصفیه آب به زبان فارسی عامیانه است. آن را رونویسی کن و سپس دقیقاً طبق دستورالعمل سیستم، به همان ساختار JSON تراکنش مالی تبدیل کن.\n\nاطلاعات کمکی زمینه: ${JSON.stringify(context)}`,
+      const response = await withTimeout(
+        ai.models.generateContent({
+          model: MODEL,
+          contents: [
+            { inlineData: { mimeType, data: audioBase64 } },
+            {
+              text: `این فایل صوتی، گزارش کار یک تکنسین تصفیه آب به زبان فارسی عامیانه است. آن را رونویسی کن و سپس دقیقاً طبق دستورالعمل سیستم، به همان ساختار JSON تراکنش مالی تبدیل کن.\n\nاطلاعات کمکی زمینه: ${JSON.stringify(context)}`,
+            },
+          ],
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+            responseMimeType: 'application/json',
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            responseSchema: RESPONSE_SCHEMA as any,
           },
-        ],
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          responseMimeType: 'application/json',
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          responseSchema: RESPONSE_SCHEMA as any,
-        },
-      });
+        }),
+        timeoutMs,
+      );
       const raw = response?.text;
       if (!raw) throw new Error('Empty Gemini response');
       const parsed: unknown = JSON.parse(raw.trim());

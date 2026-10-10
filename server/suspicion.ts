@@ -2,7 +2,7 @@
 // AI result (Gemini or fallback) before it leaves the server. Pure.
 // Rules: zero amounts, absurd magnitudes, paid > total mismatches, and
 // >10x the user's typical amount (client-computed median, passed in context).
-import { aiAnalysisResultSchema } from '../src/types/schemas.js';
+import { aiAnalysisResultSchema } from '../src/types/schemas';
 
 const HUGE_AMOUNT = 500_000_000; // 500M Toman: plausible ceiling for a water tech job
 const TYPICAL_MULTIPLE = 10;
