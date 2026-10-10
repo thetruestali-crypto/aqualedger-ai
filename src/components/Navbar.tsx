@@ -12,6 +12,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { formatTomanCompact } from '../utils/formatters';
+import type { CompanySettings } from '../types';
 
 interface NavbarProps {
   activeTab: string;
@@ -20,6 +21,7 @@ interface NavbarProps {
   bossStatus: 'creditor' | 'debtor' | 'settled';
   onOpenQuickEntry: () => void;
   onOpenHelp: () => void;
+  settings?: CompanySettings;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -29,6 +31,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   bossStatus,
   onOpenQuickEntry,
   onOpenHelp,
+  settings,
 }) => {
   const tabs = [
     { id: 'dashboard', label: 'داشبورد مالی', icon: LayoutDashboard },
@@ -47,8 +50,12 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center justify-between h-16 gap-2">
           {/* Logo & title */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('dashboard')}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center shadow-lg shadow-cyan-500/20 text-white font-black text-xl">
-              <Droplets className="w-6 h-6 animate-pulse" />
+            <div className="w-10 h-10 rounded-xl overflow-hidden bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center shadow-lg shadow-cyan-500/20 text-white font-black text-xl shrink-0">
+              {settings?.companyLogo ? (
+                <img src={settings.companyLogo} alt="لوگو" className="w-full h-full object-cover" />
+              ) : (
+                <Droplets className="w-6 h-6 animate-pulse" />
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -60,6 +67,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden sm:block">
+                {settings?.companyName ? (
+                  <>
+                    <span className="text-cyan-300 font-bold">{settings.companyName}</span>
+                    {settings?.technicianName ? (
+                      <span> • {settings.technicianName}</span>
+                    ) : null}
+                    <span> • </span>
+                  </>
+                ) : null}
                 حسابدار هوشمند دوشغله (حقوق شرکتی + خدمات میدانی)
               </p>
             </div>

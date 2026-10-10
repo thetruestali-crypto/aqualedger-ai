@@ -2,6 +2,20 @@
 
 > Every non-obvious choice goes here with date + rationale. Newest first.
 
+## 2026-10-09 — Editable company profile (company name, logo, technician name, base salary)
+
+- **D23. New optional settings fields:** `technicianName?: string`, `companyLogo?: string (data-URL)`.
+  Optional so old backups/IndexedDB rows keep validating (zod `.optional()`); Dexie needs no
+  version bump (settings is a single schemaless row). Seed + empty state default to `''`.
+- **D24. Logo storage:** image/* file -> data-URL via FileReader, max ~1.5MB, stored in the same
+  settings row (IndexedDB/localStorage) so backup JSON carries it. No server upload, stays offline-first.
+  Navbar/Dashboard render `<img>` when present, else default Droplets icon.
+- **D25. Salary input UX:** `monthlyBaseSalary` was `type=number` (hard to edit, no fa-digits).
+  Now `type=text inputMode=numeric` with `parseTomanInput` (fa/ar->en, strips ٬،, spaces) + live
+  `formatToman` preview. Settings form syncs via `useEffect` on async boot hydrate.
+- **D26. Visibility:** company/technician/logo shown in Navbar subtitle, Dashboard header
+  (with logo thumbnail), Company ledger subtitle, and both invoice texts (boss + client).
+
 ## 2026-10-07 — Phase 1 audit + tooling upgrade
 
 - **D1. Gemini model ID:** ARD cites `gemini-3.8-flash`, which does not exist on npm/official docs.

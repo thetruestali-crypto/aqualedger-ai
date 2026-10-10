@@ -47,7 +47,11 @@ export const InvoiceExportModal: React.FC<InvoiceExportModalProps> = ({
 
   const generateBossReportText = () => {
     let text = `📄 صورت وضعیت و تراز تسویه حساب با شرکت\n`;
+    text += `🏢 شرکت: ${settings.companyName}\n`;
     text += `👤 طرف حساب: ${settings.bossName} (${settings.companyName})\n`;
+    if (settings.technicianName) {
+      text += `🧑‍🔧 تکنسین: ${settings.technicianName}\n`;
+    }
     text += `📅 تاریخ گزارش: ${toJalaliDate()}\n`;
     text += `───────────────────────\n`;
     text += `🔹 حقوق پایه تعلق‌گرفته: ${formatToman(summary.baseSalaryAccrued)}\n\n`;
@@ -98,6 +102,10 @@ export const InvoiceExportModal: React.FC<InvoiceExportModalProps> = ({
   const generateClientInvoiceText = () => {
     if (!selectedClient) return '';
     let text = `🧾 فاکتور خدمات و سرویس تصفیه آب\n`;
+    text += `🏢 ${settings.companyName}\n`;
+    if (settings.technicianName) {
+      text += `🧑‍🔧 تکنسین: ${settings.technicianName}\n`;
+    }
     text += `👤 مشترک گرامی: ${selectedClient.name}\n`;
     text += `📍 آدرس: ${selectedClient.address || '-'}\n`;
     text += `⚙️ دستگاه: ${selectedClient.deviceModel}\n`;

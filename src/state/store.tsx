@@ -33,6 +33,8 @@ const EMPTY_STATE: AppState = {
     companyName: '',
     bossName: '',
     bossPhone: '',
+    technicianName: '',
+    companyLogo: '',
     monthlyBaseSalary: 0,
     salaryPaymentDay: 25,
     overtimeHourlyRate: 0,

@@ -59,6 +59,10 @@ export interface CompanySettings {
   companyName: string;
   bossName: string;
   bossPhone: string;
+  /** Editable technician display name (shown in navbar, dashboard, invoices). */
+  technicianName?: string;
+  /** Editable company logo as data-URL (image/*). Optional; empty means default icon. */
+  companyLogo?: string;
   monthlyBaseSalary: number; // تومان
   salaryPaymentDay: number;   // روز چندم هر ماه شمسی (مثلا ۲۵)
   overtimeHourlyRate: number; // نرخ هر ساعت اضافه کار

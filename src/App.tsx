@@ -237,6 +237,7 @@ function Shell() {
         setActiveTab={setActiveTab}
         bossNetBalance={summary.bossNetBalance}
         bossStatus={summary.bossStatus}
+        settings={settings}
         onOpenQuickEntry={() => setActiveTab('quick-entry')}
         onOpenHelp={() => setIsGuideModalOpen(true)}
       />

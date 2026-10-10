@@ -7,6 +7,8 @@ export const defaultSettings: CompanySettings = {
   companyName: 'تصفیه آب زلال گستر البرز',
   bossName: 'مهندس جلالی',
   bossPhone: '09121234567',
+  technicianName: 'تکنسین ارشد',
+  companyLogo: '',
   monthlyBaseSalary: 24_000_000, // ۲۴ میلیون تومان در ماه
   salaryPaymentDay: 25,          // بیست و پنجم هر ماه شمسی
   overtimeHourlyRate: 140_000,   // ۱۴۰ هزار تومان هر ساعت

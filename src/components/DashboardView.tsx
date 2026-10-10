@@ -62,7 +62,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="space-y-6">
       {/* Top Welcome and Status bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
-        <div>
+        <div className="flex items-center gap-3">
+          {settings.companyLogo ? (
+            <img
+              src={settings.companyLogo}
+              alt="لوگوی شرکت"
+              className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0"
+            />
+          ) : null}
+          <div>
           <h1 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
             <span>داشبورد مالی و تراز تکنسین</span>
             <span className="text-xs font-normal text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full">
@@ -72,7 +80,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <p className="text-xs text-slate-400 mt-1">
             شرکت: <span className="text-cyan-400 font-bold">{settings.companyName}</span> | طرف حساب
             شرکتی: <span className="text-cyan-400 font-bold">{settings.bossName}</span>
+            {settings.technicianName ? (
+              <> | تکنسین: <span className="text-cyan-400 font-bold">{settings.technicianName}</span></>
+            ) : null}
           </p>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">

@@ -132,6 +132,9 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
           </div>
           <p className="text-xs text-slate-400 mt-1">
             شرکت: {settings.companyName} | روز سررسید پرداخت حقوق: {toPersianDigits(settings.salaryPaymentDay)} هر ماه
+            {settings.technicianName ? (
+              <> | تکنسین: <span className="text-cyan-300 font-bold">{settings.technicianName}</span></>
+            ) : null}
           </p>
         </div>
 
