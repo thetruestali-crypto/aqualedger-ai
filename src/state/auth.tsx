@@ -32,6 +32,8 @@ interface AuthContextValue {
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   continueOffline: () => void;
+  /** Leave offline mode and show the login gate again. */
+  showLogin: () => void;
   /** Fresh access token for protected /api calls (null when logged out). */
   getToken: () => Promise<string | null>;
 }
@@ -129,6 +131,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setOfflineMode(true);
   }, []);
 
+  const showLogin = useCallback(() => {
+    try {
+      localStorage.removeItem(OFFLINE_FLAG);
+    } catch {
+      // ignore
+    }
+    setOfflineMode(false);
+  }, []);
+
   const getToken = useCallback(async (): Promise<string | null> => {
     const sb = getSupabaseClient();
     if (!sb) return null;
@@ -153,6 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithGoogle,
       signOut,
       continueOffline,
+      showLogin,
       getToken,
     }),
     [
@@ -165,6 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithGoogle,
       signOut,
       continueOffline,
+      showLogin,
       getToken,
     ],
   );

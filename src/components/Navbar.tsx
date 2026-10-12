@@ -10,11 +10,11 @@ import {
   PlusCircle,
   HelpCircle,
   BarChart3,
-  LogOut,
 } from 'lucide-react';
 import { formatTomanCompact } from '../utils/formatters';
 import type { CompanySettings } from '../types';
 import { useAuth } from '../state/auth';
+import { AuthArea } from './AuthArea';
 
 interface NavbarProps {
   activeTab: string;
@@ -35,7 +35,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenHelp,
   settings,
 }) => {
-  const { session, signOut } = useAuth();
+  const { configured, session, signOut, showLogin } = useAuth();
   const tabs = [
     { id: 'dashboard', label: 'داشبورد مالی', icon: LayoutDashboard },
     { id: 'quick-entry', label: 'ورودی صوتی و هوشمند', icon: Sparkles, highlight: true },
@@ -133,16 +133,23 @@ export const Navbar: React.FC<NavbarProps> = ({
               <HelpCircle className="w-5 h-5" />
             </button>
 
-            {/* Sign out (Google OAuth session only) */}
-            {session && (
-              <button
-                onClick={() => void signOut()}
-                className="p-2 rounded-lg text-slate-400 hover:text-rose-300 hover:bg-slate-800 transition-colors"
-                title={session.user?.email ? `خروج از حساب (${session.user.email})` : 'خروج از حساب'}
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
-            )}
+            {/* Auth corner (Supabase configured only): offline badge + login,
+                or account email + sign out. */}
+            {configured &&
+              (session ? (
+                <AuthArea
+                  status="logged-in"
+                  email={session.user?.email}
+                  onSignIn={showLogin}
+                  onSignOut={() => void signOut()}
+                />
+              ) : (
+                <AuthArea
+                  status="logged-out"
+                  onSignIn={showLogin}
+                  onSignOut={() => void signOut()}
+                />
+              ))}
           </div>
         </div>
 
