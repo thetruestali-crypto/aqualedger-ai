@@ -15,6 +15,8 @@ import { UserGuideModal } from './components/UserGuideModal';
 
 import type { Transaction, CompanySettings, Client, PartItem } from './types';
 import { AppStoreProvider, useAppStore } from './state/store';
+import { AuthProvider, useAuth } from './state/auth';
+import { LoginView } from './components/LoginView';
 import { matchClientId } from './state/transitions';
 import { validateBackupPayload, serializeBackup, backupFileName } from './data/backup';
 import { toPersianDigits } from './lib/format';
@@ -52,6 +54,7 @@ function Shell() {
     driverRef,
   } = useAppStore();
   const { transactions, settings, clients, parts } = state;
+  const { initializing: authInitializing, needsLogin } = useAuth();
 
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -225,7 +228,11 @@ function Shell() {
     pushToast('داده‌های نمونه بازیابی شد.', 'info');
   };
 
-  if (!ready) return <LoadingSplash driver={driver} />;
+  if (!ready || authInitializing) return <LoadingSplash driver={driver} />;
+
+  // Google-OAuth gate (Supabase configured only). Offline mode and local data
+  // keep working without a session; server AI calls still need the Bearer token.
+  if (needsLogin) return <LoginView />;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -356,8 +363,10 @@ function Shell() {
 
 export default function App() {
   return (
-    <AppStoreProvider>
-      <Shell />
-    </AppStoreProvider>
+    <AuthProvider>
+      <AppStoreProvider>
+        <Shell />
+      </AppStoreProvider>
+    </AuthProvider>
   );
 }

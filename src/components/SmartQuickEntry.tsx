@@ -33,6 +33,8 @@ import {
   removeAIRequest,
   type QueuedAIRequest,
 } from '../data/outbox';
+import { useAuth } from '../state/auth';
+import { bearerHeaders } from '../lib/supabase';
 
 interface SmartQuickEntryProps {
   onSaveTransaction: (tx: Transaction) => void;
@@ -79,6 +81,7 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
   settings,
   typicalAmount,
 }) => {
+  const { getToken } = useAuth();
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
@@ -310,9 +313,10 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), ANALYSIS_TIMEOUT_MS);
     try {
+      const authHeaders = bearerHeaders(await getToken());
       const response = await fetch('/api/analyze-transaction', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
           text,
           context: requestContext(),
@@ -445,9 +449,10 @@ export const SmartQuickEntry: React.FC<SmartQuickEntryProps> = ({
     const timer = setTimeout(() => ctrl.abort(), ANALYSIS_TIMEOUT_MS * 2);
     try {
       const audioBase64 = await blobToBase64(blob);
+      const audioAuthHeaders = bearerHeaders(await getToken());
       const response = await fetch('/api/analyze-audio', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...audioAuthHeaders },
         body: JSON.stringify({
           audioBase64,
           mimeType: blob.type || 'audio/webm',
