@@ -5,12 +5,14 @@ import { getDb } from './db';
 import { createDexieStore } from './dexieStore';
 import { createLocalStore } from './localStore';
 import { readLegacySnapshot, migrateLegacyToTarget, type MigrationTarget } from './migrate';
+import { setDbOwner, isUserOwner } from './owner';
 import {
   defaultTransactions,
   defaultClients,
   defaultParts,
   defaultSettings,
   defaultServiceLogs,
+  blankSettings,
 } from './seed';
 import { isMigratedToDexie, markMigratedToDexie } from '../utils/storage';
 import type { LedgerStore } from './repository';
@@ -35,10 +37,21 @@ function dexieTarget(): MigrationTarget {
   };
 }
 
-export async function bootStore(): Promise<BootResult> {
+export async function bootStore(ownerId: string | null = null): Promise<BootResult> {
+  setDbOwner(ownerId);
   try {
     if (typeof localStorage === 'undefined') throw new Error('no localStorage');
     const store = createDexieStore();
+    if (isUserOwner(ownerId)) {
+      // A logged-in user gets a CLEAN database: no legacy migration, no demo
+      // seed. Only ensure a blank settings row exists for the salary engine.
+      const existing = await getDb().settings.get('main');
+      if (!existing) {
+        await getDb().settings.put({ key: 'main', ...blankSettings });
+      }
+      await store.getSettings(); // probe IndexedDB (throws when unavailable)
+      return { store, driver: 'dexie', migrated: false };
+    }
     let migrated = isMigratedToDexie();
     if (!migrated) {
       const snapshot = readLegacySnapshot(

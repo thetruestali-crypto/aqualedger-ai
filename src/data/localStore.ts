@@ -23,6 +23,8 @@ import {
   resetToDemoData,
 } from '../utils/storage';
 import { normalizeTransaction, type LedgerStore, type StockLine } from './repository';
+import { getDbOwner } from './owner';
+import { blankSettings } from './seed';
 
 function upsert<T extends { id: string }>(list: T[], row: T): T[] {
   const i = list.findIndex((r) => r.id === row.id);
@@ -103,6 +105,15 @@ export function createLocalStore(): LedgerStore {
       saveSettings(b.settings);
     },
     async resetToSeed() {
+      // Owner-aware like dexieStore: a logged-in owner resets to CLEAN.
+      if (getDbOwner()) {
+        saveTransactions([]);
+        saveClients([]);
+        saveParts([]);
+        saveServiceLogs([]);
+        saveSettings({ ...blankSettings });
+        return;
+      }
       resetToDemoData();
     },
   };

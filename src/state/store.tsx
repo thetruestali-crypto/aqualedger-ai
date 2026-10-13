@@ -15,6 +15,8 @@ import React, {
 import type { BackupPayload } from '../data/db';
 import type { LedgerStore } from '../data/repository';
 import { bootStore } from '../data/boot';
+import { getDbOwner } from '../data/owner';
+import { blankSettings } from '../data/seed';
 import { applyAction, type AppAction, type AppState } from './transitions';
 import {
   selectSummary,
@@ -29,18 +31,7 @@ export const PERSIST_DEBOUNCE_MS = 500;
 
 const EMPTY_STATE: AppState = {
   transactions: [],
-  settings: {
-    companyName: '',
-    bossName: '',
-    bossPhone: '',
-    technicianName: '',
-    companyLogo: '',
-    monthlyBaseSalary: 0,
-    salaryPaymentDay: 25,
-    overtimeHourlyRate: 0,
-    insuranceDeduction: 0,
-    autoAccrueSalary: false,
-  },
+  settings: { ...blankSettings },
   clients: [],
   parts: [],
   serviceLogs: [],
@@ -58,6 +49,12 @@ interface StoreContextValue {
   persistError: string | null;
   /** Re-read everything from the driver (used after reset-to-seed). */
   reload: () => Promise<void>;
+  /**
+   * Switch the local database to another owner (Supabase user id or null for
+   * guest) and re-hydrate. Shows the splash while switching so no stale rows
+   * from the previous owner are ever painted.
+   */
+  switchOwner: (ownerId: string | null) => Promise<void>;
   /** Direct driver access for backup export / seed reset. */
   driverRef: React.MutableRefObject<LedgerStore | null>;
 }
@@ -83,6 +80,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const driverRef = useRef<LedgerStore | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readyRef = useRef(false);
+  const persistGenRef = useRef(0);
   const snapshotRef = useRef(snapshotOf(EMPTY_STATE));
   snapshotRef.current = snapshotOf(state);
 
@@ -99,10 +97,10 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'HYDRATE', state: { transactions, clients, parts, serviceLogs, settings } });
   }, []);
 
-  // Boot once: pick driver, migrate legacy data, hydrate.
+  // Boot once: pick driver, migrate legacy data, hydrate (guest owner).
   useEffect(() => {
     let cancelled = false;
-    bootStore()
+    bootStore(getDbOwner())
       .then(async ({ store, driver }) => {
         if (cancelled) return;
         driverRef.current = store;
@@ -122,12 +120,43 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     };
   }, [reload]);
 
+  // Switch local database on login/logout. Cancels any pending debounced
+  // write first so the previous owner's snapshot can never land in the new
+  // owner's database (generation guard as a second barrier).
+  const switchOwner = useCallback(
+    async (ownerId: string | null) => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      persistGenRef.current += 1;
+      readyRef.current = false;
+      setReady(false);
+      setBootFailed(false);
+      try {
+        const { store, driver } = await bootStore(ownerId);
+        driverRef.current = store;
+        setDriverName(driver);
+        await reload();
+      } catch {
+        setBootFailed(true);
+      } finally {
+        readyRef.current = true;
+        setReady(true);
+      }
+    },
+    [reload],
+  );
+
   // Debounced persistence: every committed state is written back whole.
+  // The generation guard drops writes scheduled before an owner switch.
   useEffect(() => {
     if (!readyRef.current || !driverRef.current) return;
     if (timerRef.current) clearTimeout(timerRef.current);
     const snap = snapshotOf(state);
+    const gen = persistGenRef.current;
     timerRef.current = setTimeout(() => {
+      if (gen !== persistGenRef.current) return;
       driverRef.current
         ?.importBackup({ version: 1, exportedAt: new Date().toISOString(), ...snap })
         .then(() => setPersistError(null))
@@ -185,9 +214,10 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       bootFailed,
       persistError,
       reload,
+      switchOwner,
       driverRef,
     }),
-    [state, dispatch, summary, reminders, lowStock, ready, driverName, bootFailed, persistError, reload],
+    [state, dispatch, summary, reminders, lowStock, ready, driverName, bootFailed, persistError, reload, switchOwner],
   );
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

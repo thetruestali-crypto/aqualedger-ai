@@ -9,12 +9,14 @@ import type {
 } from '../types';
 import type { BackupPayload } from './db';
 import { planStockDecrement } from '../domain/inventory';
+import { getDbOwner } from './owner';
 import {
   defaultTransactions,
   defaultClients,
   defaultParts,
   defaultSettings,
   defaultServiceLogs,
+  blankSettings,
 } from './seed';
 import { normalizeTransaction, type LedgerStore, type StockLine } from './repository';
 
@@ -107,6 +109,16 @@ export function createMemoryStore(seed = true): LedgerStore {
       settings = clone(b.settings);
     },
     async resetToSeed() {
+      // Owner-aware like dexieStore: a logged-in owner resets to a CLEAN
+      // database, never to the guest demo seed.
+      if (getDbOwner()) {
+        transactions = [];
+        clients = [];
+        parts = [];
+        serviceLogs = [];
+        settings = clone(blankSettings);
+        return;
+      }
       transactions = clone(defaultTransactions);
       clients = clone(defaultClients);
       parts = clone(defaultParts);

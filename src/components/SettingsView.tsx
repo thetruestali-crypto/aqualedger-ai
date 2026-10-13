@@ -18,6 +18,7 @@ import { CompanySettings } from '../types';
 import { formatToman, toPersianDigits } from '../utils/formatters';
 import { computeBaseSalaryAccrued } from '../domain/financialEngine';
 import { useInstallPrompt } from '../pwa/install';
+import { useAuth } from '../state/auth';
 
 interface SettingsViewProps {
   settings: CompanySettings;
@@ -67,6 +68,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const fileRef = useRef<HTMLInputElement>(null);
   const logoRef = useRef<HTMLInputElement>(null);
   const { canInstall, isInstalled, promptInstall } = useInstallPrompt();
+  // A logged-in owner resets to a CLEAN account database, never demo seed.
+  const { session } = useAuth();
+  const isAccountReset = !!session;
 
   // Sync when async boot hydrates settings (initial useState would otherwise stay empty).
   useEffect(() => {
@@ -516,14 +520,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (window.confirm('آیا از بازنشانی داده‌های نمونه تصفیه آب اطمینان دارید؟')) {
+                const msg = isAccountReset
+                  ? 'همه داده‌های این حساب (تراکنش‌ها، مشتریان، انبار و تنظیمات) پاک و از نو شروع می‌شود. ادامه می‌دهید؟'
+                  : 'آیا از بازنشانی داده‌های نمونه تصفیه آب اطمینان دارید؟';
+                if (window.confirm(msg)) {
                   onResetDemo();
                 }
               }}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 text-xs font-medium"
             >
               <RotateCcw className="w-4 h-4" />
-              <span>بازنشانی به دیتای اولیه</span>
+              <span>{isAccountReset ? 'پاک‌سازی کامل داده‌های حساب' : 'بازنشانی به دیتای اولیه'}</span>
             </button>
           </div>
 

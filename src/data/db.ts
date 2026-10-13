@@ -3,6 +3,7 @@
 // All money: integer Toman.
 import Dexie, { type Table } from 'dexie';
 import type { Transaction, CompanySettings, Client, PartItem, ServiceLog } from '../types';
+import { dbNameForOwner, getDbOwner } from './owner';
 
 export interface PendingAIRequest {
   id: string;
@@ -27,8 +28,8 @@ export class AquaLedgerDb extends Dexie {
   // Single-row settings stored by fixed key.
   settings!: Table<CompanySettings & { key: string }, string>;
 
-  constructor() {
-    super(DB_NAME);
+  constructor(name: string = DB_NAME) {
+    super(name);
     this.version(DB_VERSION).stores({
       transactions: 'id, streamType, transactionType, date',
       clients: 'id, name',
@@ -40,12 +41,23 @@ export class AquaLedgerDb extends Dexie {
   }
 }
 
-let dbInstance: AquaLedgerDb | null = null;
+const dbInstances = new Map<string, AquaLedgerDb>();
 
-/** Lazy singleton (avoids touching IndexedDB at import time, e.g. during SSR/tests). */
+/**
+ * Lazy per-owner instance (avoids touching IndexedDB at import time, e.g.
+ * during SSR/tests). The guest owner uses the legacy 'aqualedger' database;
+ * each logged-in user gets an isolated `aqualedger_u_<id>` database.
+ * Callers must NOT cache the result across an owner switch — dexieStore
+ * resolves getDb() on every operation for exactly this reason.
+ */
 export function getDb(): AquaLedgerDb {
-  if (!dbInstance) dbInstance = new AquaLedgerDb();
-  return dbInstance;
+  const name = dbNameForOwner(getDbOwner());
+  let db = dbInstances.get(name);
+  if (!db) {
+    db = new AquaLedgerDb(name);
+    dbInstances.set(name, db);
+  }
+  return db;
 }
 
 /** Full-backup export shape (Settings view downloads/uploads this JSON). */

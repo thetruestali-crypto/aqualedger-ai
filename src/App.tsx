@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { BottomTabs } from './components/BottomTabs';
@@ -51,10 +51,23 @@ function Shell() {
     bootFailed,
     persistError,
     reload,
+    switchOwner,
     driverRef,
   } = useAppStore();
   const { transactions, settings, clients, parts } = state;
-  const { initializing: authInitializing, needsLogin } = useAuth();
+  const { initializing: authInitializing, needsLogin, user } = useAuth();
+  const ownerId = user?.id ?? null;
+  const activeOwnerRef = useRef<string | null>(null);
+
+  // Switch the local database when the auth identity changes (login/logout).
+  // Layout effect so no frame ever paints the previous owner's rows; the
+  // switch itself shows the splash via the store's ready flag.
+  useLayoutEffect(() => {
+    if (!ready || authInitializing) return;
+    if (activeOwnerRef.current === ownerId) return;
+    activeOwnerRef.current = ownerId;
+    void switchOwner(ownerId);
+  }, [ready, authInitializing, ownerId, switchOwner]);
 
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -221,11 +234,14 @@ function Shell() {
     return { ok: true, errors: [] };
   };
 
-  // Reset to initial demo
+  // Reset: demo seed for guests, clean account database when logged in.
   const handleResetDemo = async () => {
     await driverRef.current?.resetToSeed();
     await reload();
-    pushToast('داده‌های نمونه بازیابی شد.', 'info');
+    pushToast(
+      user ? 'داده‌های حساب پاک‌سازی شد؛ با دفتر تمیز شروع شد.' : 'داده‌های نمونه بازیابی شد.',
+      'info',
+    );
   };
 
   if (!ready || authInitializing) return <LoadingSplash driver={driver} />;

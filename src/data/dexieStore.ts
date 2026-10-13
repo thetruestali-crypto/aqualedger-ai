@@ -5,12 +5,14 @@ import type { CompanySettings } from '../types';
 import { getDb, type BackupPayload } from './db';
 import { planStockDecrement } from '../domain/inventory';
 import { findPart } from '../domain/inventory';
+import { getDbOwner } from './owner';
 import {
   defaultTransactions,
   defaultClients,
   defaultParts,
   defaultSettings,
   defaultServiceLogs,
+  blankSettings,
 } from './seed';
 import { normalizeTransaction, type LedgerStore, type StockLine } from './repository';
 
@@ -100,6 +102,9 @@ export function createDexieStore(): LedgerStore {
     },
     async resetToSeed() {
       const db = getDb();
+      // For a logged-in owner "reset" means a CLEAN account database (empty +
+      // blank settings), never the guest demo seed. Guests keep demo behavior.
+      const userOwned = !!getDbOwner();
       await db.transaction(
         'rw',
         [db.transactions, db.clients, db.parts, db.serviceLogs, db.settings],
@@ -108,6 +113,10 @@ export function createDexieStore(): LedgerStore {
           await db.clients.clear();
           await db.parts.clear();
           await db.serviceLogs.clear();
+          if (userOwned) {
+            await db.settings.put({ key: 'main', ...blankSettings });
+            return;
+          }
           await db.transactions.bulkPut(defaultTransactions);
           await db.clients.bulkPut(defaultClients);
           await db.parts.bulkPut(defaultParts);

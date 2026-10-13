@@ -16,6 +16,24 @@ export const defaultSettings: CompanySettings = {
   autoAccrueSalary: true,
 };
 
+/**
+ * Fresh settings for a newly logged-in user's own database: no demo company,
+ * no demo salary — the user configures everything in Settings. Shape matches
+ * EMPTY_STATE in state/store.tsx (imported there to avoid drift).
+ */
+export const blankSettings: CompanySettings = {
+  companyName: '',
+  bossName: '',
+  bossPhone: '',
+  technicianName: '',
+  companyLogo: '',
+  monthlyBaseSalary: 0,
+  salaryPaymentDay: 25,
+  overtimeHourlyRate: 0,
+  insuranceDeduction: 0,
+  autoAccrueSalary: false,
+};
+
 export const defaultParts: PartItem[] = [
   {
     id: 'part-1',
