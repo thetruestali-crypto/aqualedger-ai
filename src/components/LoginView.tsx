@@ -1,14 +1,34 @@
-// Persian Google-OAuth login screen. LoginCard is presentational (unit-tested
-// with renderToString); LoginView wires it to the auth context.
-import React from 'react';
+// Persian login screen: Google OAuth + SMS (phone) code.
+// LoginCard is presentational (unit-tested with renderToString); LoginView
+// wires it to the auth context.
+import React, { useState } from 'react';
 import { Loader2, AlertCircle, WifiOff, Droplets } from 'lucide-react';
 import { useAuth } from '../state/auth';
+import { SmsLoginForm, type SmsLoginStage } from './SmsLoginForm';
+
+export type LoginMethod = 'google' | 'sms';
 
 interface LoginCardProps {
   loading: boolean;
   error: string | null;
   onGoogleSignIn: () => void;
   onContinueOffline: () => void;
+  /** Controlled method switch; when omitted the card manages it internally. */
+  method?: LoginMethod;
+  onMethodChange?: (method: LoginMethod) => void;
+  smsStage?: SmsLoginStage;
+  smsPhone?: string;
+  smsCode?: string;
+  smsLoading?: boolean;
+  smsError?: string | null;
+  smsInfo?: string | null;
+  smsCooldown?: number;
+  onSmsPhoneChange?: (value: string) => void;
+  onSmsCodeChange?: (value: string) => void;
+  onSmsRequest?: () => void;
+  onSmsVerify?: () => void;
+  onSmsResend?: () => void;
+  onSmsBack?: () => void;
 }
 
 function GoogleG() {
@@ -39,7 +59,29 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   error,
   onGoogleSignIn,
   onContinueOffline,
+  method,
+  onMethodChange,
+  smsStage = 'phone',
+  smsPhone = '',
+  smsCode = '',
+  smsLoading = false,
+  smsError = null,
+  smsInfo = null,
+  smsCooldown = 0,
+  onSmsPhoneChange,
+  onSmsCodeChange,
+  onSmsRequest,
+  onSmsVerify,
+  onSmsResend,
+  onSmsBack,
 }) => {
+  const [internalMethod, setInternalMethod] = useState<LoginMethod>('google');
+  const activeMethod = method ?? internalMethod;
+  const selectMethod = (next: LoginMethod) => {
+    if (method === undefined) setInternalMethod(next);
+    onMethodChange?.(next);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
       <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900/90 p-6 shadow-xl text-center">
@@ -50,8 +92,41 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           Aqua<span className="text-cyan-400">Ledger</span> AI
         </h1>
         <p className="mt-1 text-xs text-slate-400 leading-relaxed">
-          برای همگام‌سازی امن و استفاده از هوش مصنوعی، با حساب گوگل خود وارد شوید.
+          برای همگام‌سازی امن و استفاده از هوش مصنوعی، با حساب گوگل یا شمارهٔ موبایل خود وارد شوید.
         </p>
+
+        <div
+          role="tablist"
+          aria-label="روش ورود"
+          className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-slate-800 bg-slate-950/60 p-1"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeMethod === 'google'}
+            onClick={() => selectMethod('google')}
+            className={`min-h-[44px] rounded-lg px-2 py-2 text-xs font-extrabold transition-colors ${
+              activeMethod === 'google'
+                ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            ورود با گوگل
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeMethod === 'sms'}
+            onClick={() => selectMethod('sms')}
+            className={`min-h-[44px] rounded-lg px-2 py-2 text-xs font-extrabold transition-colors ${
+              activeMethod === 'sms'
+                ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            ورود با شمارهٔ موبایل
+          </button>
+        </div>
 
         {error && (
           <div
@@ -63,24 +138,47 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={onGoogleSignIn}
-          disabled={loading}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-extrabold text-slate-900 transition-all hover:bg-slate-100 active:scale-95 disabled:opacity-60"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>در حال ورود...</span>
-            </>
-          ) : (
-            <>
-              <GoogleG />
-              <span>ورود با حساب گوگل</span>
-            </>
-          )}
-        </button>
+        {activeMethod === 'google' ? (
+          <>
+            <button
+              type="button"
+              onClick={onGoogleSignIn}
+              disabled={loading}
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-extrabold text-slate-900 transition-all hover:bg-slate-100 active:scale-95 disabled:opacity-60"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>در حال ورود...</span>
+                </>
+              ) : (
+                <>
+                  <GoogleG />
+                  <span>ورود با حساب گوگل</span>
+                </>
+              )}
+            </button>
+            <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">
+              ورود با گوگل، حساب شما را به همین دستگاه متصل می‌کند.
+            </p>
+          </>
+        ) : (
+          <SmsLoginForm
+            stage={smsStage}
+            phone={smsPhone}
+            code={smsCode}
+            loading={smsLoading}
+            error={smsError}
+            info={smsInfo}
+            cooldownSeconds={smsCooldown}
+            onPhoneChange={(value) => onSmsPhoneChange?.(value)}
+            onCodeChange={(value) => onSmsCodeChange?.(value)}
+            onRequest={() => onSmsRequest?.()}
+            onVerify={() => onSmsVerify?.()}
+            onResend={() => onSmsResend?.()}
+            onBack={() => onSmsBack?.()}
+          />
+        )}
 
         <button
           type="button"
@@ -99,13 +197,46 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 };
 
 export const LoginView: React.FC = () => {
-  const { signInWithGoogle, continueOffline, signingIn, signInError } = useAuth();
+  const {
+    signInWithGoogle,
+    continueOffline,
+    signingIn,
+    signInError,
+    smsStage,
+    smsPhone,
+    smsLoading,
+    smsError,
+    smsInfo,
+    smsCooldown,
+    requestSmsCode,
+    verifySmsCode,
+    resetSmsFlow,
+  } = useAuth();
+  const [smsPhoneInput, setSmsPhoneInput] = useState('');
+  const [smsCodeInput, setSmsCodeInput] = useState('');
+
   return (
     <LoginCard
       loading={signingIn}
       error={signInError}
       onGoogleSignIn={() => void signInWithGoogle()}
       onContinueOffline={continueOffline}
+      smsStage={smsStage}
+      smsPhone={smsPhoneInput}
+      smsCode={smsCodeInput}
+      smsLoading={smsLoading}
+      smsError={smsError}
+      smsInfo={smsInfo}
+      smsCooldown={smsCooldown}
+      onSmsPhoneChange={setSmsPhoneInput}
+      onSmsCodeChange={setSmsCodeInput}
+      onSmsRequest={() => void requestSmsCode(smsPhoneInput)}
+      onSmsVerify={() => void verifySmsCode(smsCodeInput)}
+      onSmsResend={() => void requestSmsCode(smsPhoneInput)}
+      onSmsBack={() => {
+        setSmsCodeInput('');
+        resetSmsFlow();
+      }}
     />
   );
 };

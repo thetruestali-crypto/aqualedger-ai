@@ -18,7 +18,8 @@
 ## Architecture (binding)
 
 - Storage: Dexie (IndexedDB), schema version + migrations from day one.
-  Repository interface in `src/data/` so sync can be added later. No cloud sync/auth (out of scope).
+  Repository interface in `src/data/` so sync can be added later. No cloud data sync
+  (auth exists: Google OAuth + SMS/phone code, see `docs/DECISIONS.md` D27-D32).
 - AI only from Express server (`server.ts` + `server/`); key never reaches browser.
   Gemini structured output (`responseSchema`) validated with zod; invalid -> retry max 2
   with 600ms backoff -> rule-based Persian fallback parser. App usable offline / without key
@@ -35,13 +36,15 @@
 
 ## Layout
 
-- `server.ts` — Express: `/api/health`, `/api/analyze-transaction`, `/api/analyze-audio`, Vite/static
-- `server/` — gemini client, zod validators, fallbackParser, rateLimit
+- `server.ts` — Express: `/api/health`, `/api/analyze-transaction`, `/api/analyze-audio`,
+  `/api/auth/sms/request|verify`, Vite/static
+- `server/` — gemini client, zod validators, fallbackParser, rateLimit, smsAuth/sms
+  (SMS.ir + Supabase admin; shared with `netlify/functions/`)
 - `src/types/` — domain types + zod schemas (single source of truth)
 - `src/domain/` — PURE functions: financialEngine, inventory, reminders, profit (no DOM/network, 100% unit-tested)
 - `src/data/` — Dexie db, repositories, migrations, export/import, seed
-- `src/state/` — context/reducer, selectors
-- `src/lib/` — formatters (toman, Persian digits, Jalali), persian number parsing
+- `src/state/` — context/reducer, selectors, auth (Google OAuth + SMS login)
+- `src/lib/` — formatters (toman, Persian digits, Jalali), persian number parsing, phone helpers
 - `src/components/`, `src/views/` — UI; `src/pwa/` — SW config, install prompt
 - `tests/` — unit + e2e; `docs/` — PRD.md, ARD.md, PLAN.md, DECISIONS.md
 - Compat shims: `src/utils/*` re-export from `src/domain/*` / `src/lib/*`. Do not import

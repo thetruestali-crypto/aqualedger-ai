@@ -2,6 +2,49 @@
 
 > Every non-obvious choice goes here with date + rationale. Newest first.
 
+## 2026-10-20 — SMS (phone) login next to Google OAuth
+
+- **D27. Phone-first identity with a synthetic-email fallback:** the backend owns the
+  identity. A phone number maps to exactly one real Supabase user
+  (`public.sms_accounts`), so RLS, the daily AI quota and the per-user local database
+  (`aqualedger_u_<id>`) keep working unchanged — no second identity system.
+  The Supabase **Phone provider** must be enabled for `signInWithPassword({ phone })`;
+  when it is disabled the backend creates the user with a synthetic email
+  (`sms+<digits>@phone.aqualedger.app`) and signs in with that. The chosen
+  `identity_kind` is stored in `sms_accounts`, so the decision is made once and reused
+  on every later login. `public.find_user_by_phone` reuses an existing account (e.g. a
+  Google account that already carries the number) instead of creating a duplicate.
+- **D28. Random password rotation instead of a stored credential:** on every successful
+  OTP verification the backend sets a fresh 48-character random password
+  (`admin.updateUserById`), signs in with it and forgets it. The password is never
+  stored, never logged and never sent to the client — a leaked database row cannot be
+  used to log in. Consequence: linking a phone to a Google account adds a password to
+  that account; it is rotated on every SMS login, so it can never be used by anyone else.
+- **D29. 5-digit code + HMAC + layered rate limits:** the OTP is `crypto.randomInt`
+  (5 digits, zero padded) and is stored only as `HMAC-SHA256(code, SMS_OTP_SECRET)`.
+  Consumption happens atomically in SQL (`public.consume_sms_otp` with `for update`), so
+  a code can never be used twice even under concurrent requests. Limits: 60 s resend
+  cooldown, 5 sends/hour/phone, 20 sends/hour/IP (database) + 10 requests/10 min/IP
+  (Express `smsRateLimiter`). The raw code is never returned by the API, and wrong /
+  expired / unknown codes all produce the same Persian message, so the API never reveals
+  whether a number is registered.
+- **D30. Both SMS.ir delivery modes are supported:** `/v1/send/verify` when
+  `SMSIR_TEMPLATE_ID` is configured (panel template, cheaper and more stable) and
+  `/v1/send/bulk` otherwise (sender line from `SMSIR_SENDER`, auto-discovered from
+  `/v1/line` when empty). The recipient is sent in the national form first and retried
+  exactly once with the `+98` form if the panel complains about the number format.
+  Panel status codes (0/10/11/12/…) are translated into Persian messages. The key stays
+  server-side only — the browser always calls our own `/api/auth/sms/*` endpoints.
+- **D31. The offline gate is kept:** «ادامه بدون ورود (آفلاین)» remains the only path for
+  users without a network. The AI endpoints now require a Bearer token **only when
+  Supabase is configured** (`checkAuthHeader` fails open otherwise), so local dev and the
+  offline flow are unchanged while production enforces the token — Express and the
+  Netlify function now behave identically.
+- **D32. Express mirrors the Netlify function for auth:** both AI routes verify the
+  caller's JWT and enforce the daily quota once Supabase is configured. Before this
+  change the Express dev server had no auth check at all, so dev and production
+  behaved differently for Google and SMS users alike.
+
 ## 2026-10-09 — Editable company profile (company name, logo, technician name, base salary)
 
 - **D23. New optional settings fields:** `technicianName?: string`, `companyLogo?: string (data-URL)`.

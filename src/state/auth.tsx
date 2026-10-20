@@ -1,4 +1,4 @@
-// Auth session context: Google OAuth (Supabase) for the SPA.
+// Auth session context: Google OAuth + SMS (phone) login for the SPA.
 // Three states: initializing (splash, no flicker) -> session | null.
 // When Supabase env is missing the provider is inert and the app behaves as
 // before (local/offline-first, no login gate).
@@ -12,12 +12,16 @@ import React, {
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import {
+  adoptSession,
   getOAuthRedirectUrl,
   getSupabaseClient,
   isSupabaseConfigured,
 } from '../lib/supabase';
+import { normalizeIranianPhone } from '../lib/phone';
 
 const OFFLINE_FLAG = 'aqualedger_auth_offline';
+
+export type SmsLoginStage = 'phone' | 'code';
 
 interface AuthContextValue {
   configured: boolean;
@@ -36,6 +40,18 @@ interface AuthContextValue {
   showLogin: () => void;
   /** Fresh access token for protected /api calls (null when logged out). */
   getToken: () => Promise<string | null>;
+  // --- SMS (phone) login ---
+  smsStage: SmsLoginStage;
+  smsLoading: boolean;
+  smsError: string | null;
+  smsInfo: string | null;
+  /** Normalized phone (E.164) of the pending SMS login. */
+  smsPhone: string;
+  /** Seconds left before another code may be requested. */
+  smsCooldown: number;
+  requestSmsCode: (phoneInput: string) => Promise<boolean>;
+  verifySmsCode: (code: string) => Promise<boolean>;
+  resetSmsFlow: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -55,6 +71,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
   const [offlineMode, setOfflineMode] = useState<boolean>(() => readOfflineFlag());
+  const [smsStage, setSmsStage] = useState<SmsLoginStage>('phone');
+  const [smsLoading, setSmsLoading] = useState(false);
+  const [smsError, setSmsError] = useState<string | null>(null);
+  const [smsInfo, setSmsInfo] = useState<string | null>(null);
+  const [smsPhone, setSmsPhone] = useState('');
+  const [smsCooldown, setSmsCooldown] = useState(0);
 
   useEffect(() => {
     const sb = getSupabaseClient();
@@ -79,6 +101,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       alive = false;
       sub.subscription.unsubscribe();
     };
+  }, []);
+
+  // Resend countdown: one ticking interval, cleaned up on unmount.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSmsCooldown((current) => (current > 0 ? current - 1 : current));
+    }, 1000);
+    return () => clearInterval(id);
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
@@ -106,6 +136,83 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const resetSmsFlow = useCallback(() => {
+    setSmsStage('phone');
+    setSmsError(null);
+    setSmsInfo(null);
+    setSmsLoading(false);
+  }, []);
+
+  const requestSmsCode = useCallback(async (phoneInput: string): Promise<boolean> => {
+    const normalized = normalizeIranianPhone(phoneInput);
+    setSmsError(null);
+    setSmsInfo(null);
+    if (!normalized) {
+      setSmsError('شمارهٔ موبایل معتبر نیست.');
+      return false;
+    }
+    setSmsLoading(true);
+    try {
+      const response = await fetch('/api/auth/sms/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: normalized }),
+      });
+      const data = (await response.json().catch(() => null)) as
+        | { error?: string; expiresIn?: number; resendAfter?: number }
+        | null;
+      if (!response.ok) {
+        setSmsError(data?.error ?? 'ارسال کد تأیید ناموفق بود.');
+        return false;
+      }
+      setSmsPhone(normalized);
+      setSmsStage('code');
+      setSmsInfo('کد تأیید ارسال شد.');
+      setSmsCooldown(data?.resendAfter ?? 60);
+      return true;
+    } catch {
+      setSmsError('ارتباط با سرور برقرار نشد. اینترنت را بررسی کنید.');
+      return false;
+    } finally {
+      setSmsLoading(false);
+    }
+  }, []);
+
+  const verifySmsCode = useCallback(
+    async (code: string): Promise<boolean> => {
+      setSmsError(null);
+      setSmsInfo(null);
+      setSmsLoading(true);
+      try {
+        const response = await fetch('/api/auth/sms/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: smsPhone, code }),
+        });
+        const data = (await response.json().catch(() => null)) as
+          | { error?: string; accessToken?: string; refreshToken?: string }
+          | null;
+        if (!response.ok) {
+          setSmsError(data?.error ?? 'تأیید کد ناموفق بود.');
+          return false;
+        }
+        const adopted = await adoptSession(data?.accessToken ?? '', data?.refreshToken ?? '');
+        if (!adopted) {
+          setSmsError('ورود با حساب کاربری ناموفق بود. دوباره تلاش کنید.');
+          return false;
+        }
+        setSmsInfo('ورود با موفقیت انجام شد.');
+        return true;
+      } catch {
+        setSmsError('ارتباط با سرور برقرار نشد. اینترنت را بررسی کنید.');
+        return false;
+      } finally {
+        setSmsLoading(false);
+      }
+    },
+    [smsPhone],
+  );
+
   const signOut = useCallback(async () => {
     const sb = getSupabaseClient();
     try {
@@ -120,7 +227,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // ignore
     }
     setOfflineMode(false);
-  }, []);
+    resetSmsFlow();
+  }, [resetSmsFlow]);
 
   const continueOffline = useCallback(() => {
     try {
@@ -166,6 +274,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       continueOffline,
       showLogin,
       getToken,
+      smsStage,
+      smsLoading,
+      smsError,
+      smsInfo,
+      smsPhone,
+      smsCooldown,
+      requestSmsCode,
+      verifySmsCode,
+      resetSmsFlow,
     }),
     [
       configured,
@@ -179,6 +296,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       continueOffline,
       showLogin,
       getToken,
+      smsStage,
+      smsLoading,
+      smsError,
+      smsInfo,
+      smsPhone,
+      smsCooldown,
+      requestSmsCode,
+      verifySmsCode,
+      resetSmsFlow,
     ],
   );
 

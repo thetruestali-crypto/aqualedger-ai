@@ -62,3 +62,26 @@ export async function getAccessToken(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Adopt a session minted by our own backend (SMS login).
+ * The session is a regular Supabase session, so onAuthStateChange fires and
+ * every downstream feature (Bearer token, quota, per-user local db) works
+ * without any special casing.
+ */
+export async function adoptSession(
+  accessToken: string,
+  refreshToken: string,
+): Promise<boolean> {
+  const sb = getSupabaseClient();
+  if (!sb || !accessToken || !refreshToken) return false;
+  try {
+    const { error } = await sb.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    return !error;
+  } catch {
+    return false;
+  }
+}

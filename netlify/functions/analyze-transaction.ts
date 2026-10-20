@@ -3,7 +3,7 @@
 // Shared pipeline with Express via server/analyze.ts — no duplicated logic.
 import { analyzeTransactionRequestSchema } from '../../src/types/schemas';
 import { analyzeTextWithBudget } from '../../server/analyze';
-import { getBearerToken, verifySupabaseToken, UNAUTHORIZED_ERROR } from '../../server/auth';
+import { checkAuthHeader, UNAUTHORIZED_ERROR } from '../../server/auth';
 import { checkAiUsage, AI_QUOTA_ERROR } from '../../server/aiUsage';
 
 export const config = { path: '/api/analyze-transaction' };
@@ -17,12 +17,10 @@ export default async function handler(req: Request): Promise<Response> {
     return json({ error: 'متد مجاز نیست.' }, 405);
   }
 
-  const token = getBearerToken(req.headers.get('authorization'));
-  if (!token) {
-    return json({ error: UNAUTHORIZED_ERROR }, 401);
-  }
-  const verified = await verifySupabaseToken(token);
-  if (!verified.ok) {
+  // Same rule as the Express server: 401 as soon as Supabase is configured,
+  // fail open while it is not (local dev / offline).
+  const auth = await checkAuthHeader(req.headers.get('authorization'));
+  if (!auth.ok) {
     return json({ error: UNAUTHORIZED_ERROR }, 401);
   }
 
@@ -39,9 +37,11 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // Daily quota (serverless-safe; fail-open until Supabase is configured).
-  const usage = await checkAiUsage(token);
-  if (!usage.allowed) {
-    return json({ error: AI_QUOTA_ERROR }, 429);
+  if (auth.token) {
+    const usage = await checkAiUsage(auth.token);
+    if (!usage.allowed) {
+      return json({ error: AI_QUOTA_ERROR }, 429);
+    }
   }
 
   const { text, context } = parsed.data;

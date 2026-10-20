@@ -9,3 +9,13 @@ export const aiRateLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'درخواست‌های شما بیش از حد مجاز است. لطفاً چند دقیقه بعد تلاش کنید.' },
 });
+
+// Second layer for the SMS endpoints (the database enforces the per-phone /
+// per-IP limits; this one caps the raw request rate per IP).
+export const smsRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'درخواست‌های شما بیش از حد مجاز است. لطفاً چند دقیقه بعد تلاش کنید.' },
+});
