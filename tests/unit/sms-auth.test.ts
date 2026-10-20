@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
 
 // Fake Supabase clients: the service-role client owns the tables/RPCs, the
 // anon client mints the session. Everything is in-memory — no network.
