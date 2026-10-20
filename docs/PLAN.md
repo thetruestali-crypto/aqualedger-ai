@@ -148,6 +148,41 @@ missing `GEMINI_MODEL/PORT/NODE_ENV/DISABLE_HMR` · scripts missing `test`, `tes
 - [x] Final PRD review + honest gap list (below)
 - [x] Gate: `lint` ✅ `test` (95 unit) ✅ `build` ✅ + 3 E2E ✅
 
+## Phase 9 — Auth-SMS: phone login next to Google OAuth (DONE 2026-10-20)
+
+- [x] Pure phone helpers (`src/lib/phone.ts`): E.164 normalization (Persian/Arabic
+  digits, `+98`/`0098`/`09` forms), national form for SMS.ir, Persian display and
+  masking; shared by client and server
+- [x] DB: `supabase/migrations/0002_sms_auth.sql` — `sms_accounts` (phone → user
+  mapping with `identity_kind`), `sms_otp_challenges` (HMAC-hashed code, TTL,
+  attempts), RLS enabled with no policy, `SECURITY DEFINER` RPCs
+  (`find_user_by_phone`, `find_user_by_email`, `sms_otp_stats`, atomic
+  `consume_sms_otp`, `sms_account_upsert`) granted to `service_role` only
+- [x] Server: `server/supabaseAdmin.ts` (service-role + anon clients),
+  `server/sms.ts` (SMS.ir REST client, verify + bulk modes, Persian error mapping),
+  `server/smsAuth.ts` (request/verify flow, rate limits, user creation, session
+  minting, password rotation) — shared by Express and Netlify Functions
+- [x] HTTP: `POST /api/auth/sms/request` + `POST /api/auth/sms/verify` in Express
+  (`smsRateLimiter`, 10 kB body cap) and as Netlify Functions v2
+  (`netlify/functions/sms-request.ts`, `sms-verify.ts`)
+- [x] Client: `adoptSession()` in `src/lib/supabase.ts`; SMS state in
+  `src/state/auth.tsx` (stage, cooldown countdown, error/info); new
+  `SmsLoginForm` component; `LoginView` redesigned with a Google/SMS tab switch;
+  `AuthArea` shows the phone number for SMS users
+- [x] Auth parity: the Express AI routes now verify the JWT and the daily quota
+  exactly like the Netlify function (fail-open while Supabase is unconfigured)
+- [x] Tests: `phone`, `sms-client`, `sms-auth`, `sms-login-form` unit suites +
+  Netlify SMS function scenarios + updated login/auth-area assertions;
+  `tests/e2e-login/login-screen.spec.ts` (separate Playwright config with dummy
+  public Supabase env so the login gate renders)
+- [x] Gate: `lint` ✅ `test` (169 unit, 23 files) ✅ `build` ✅ + Playwright
+  (2/3 specs ✅ — the offline spec needs the built `dist/` + service worker and
+  fails identically on the pre-change code) + login-screen spec ✅
+- [ ] Deferred (honest): no real SMS.ir round-trip in CI (the panel key is not
+  available); `admin.generateLink` is email-only so it cannot be used for phones;
+  linking a phone to a Google account from the settings screen is out of scope
+  (`find_user_by_phone` is already prepared for it)
+
 ## FR coverage tracker (final, verified)
 
 | FR | Status | Evidence |

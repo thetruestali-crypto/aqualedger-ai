@@ -134,12 +134,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             {/* Auth corner (Supabase configured only): offline badge + login,
-                or account email + sign out. */}
+                or account (phone / email) + sign out. */}
             {configured &&
               (session ? (
                 <AuthArea
                   status="logged-in"
                   email={session.user?.email}
+                  phone={
+                    (session.user?.user_metadata?.phone as string | undefined) ??
+                    session.user?.phone ??
+                    null
+                  }
                   onSignIn={showLogin}
                   onSignOut={() => void signOut()}
                 />

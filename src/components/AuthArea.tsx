@@ -1,28 +1,39 @@
 // Navbar auth corner (presentational, unit-tested with renderToString).
 // Two states: logged-out shows an offline badge + a way back to login;
-// logged-in shows the account email + sign out. Rendered only when Supabase
-// is configured — local dev without env keeps the old navbar.
+// logged-in shows the account (phone for SMS users, email for Google users)
+// plus sign out. Rendered only when Supabase is configured — local dev
+// without env keeps the old navbar.
 import React from 'react';
 import { LogIn, LogOut, WifiOff } from 'lucide-react';
+import { formatIranianPhone } from '../lib/phone';
 
 export type AuthAreaStatus = 'logged-in' | 'logged-out';
 
 interface AuthAreaProps {
   status: AuthAreaStatus;
   email?: string | null;
+  /** Phone number (E.164) of an SMS user; shown instead of the email. */
+  phone?: string | null;
   onSignIn: () => void;
   onSignOut: () => void;
 }
 
-export const AuthArea: React.FC<AuthAreaProps> = ({ status, email, onSignIn, onSignOut }) => {
+export const AuthArea: React.FC<AuthAreaProps> = ({
+  status,
+  email,
+  phone,
+  onSignIn,
+  onSignOut,
+}) => {
   if (status === 'logged-in') {
+    const label = phone ? formatIranianPhone(phone) : email || 'حساب کاربری';
     return (
       <div className="flex items-center gap-1.5" dir="rtl">
         <span
-          title={email ?? 'حساب گوگل'}
+          title={label}
           className="hidden sm:inline-block max-w-[140px] truncate text-[11px] font-bold text-emerald-300"
         >
-          {email || 'حساب گوگل'}
+          {label}
         </span>
         <button
           type="button"
@@ -46,11 +57,11 @@ export const AuthArea: React.FC<AuthAreaProps> = ({ status, email, onSignIn, onS
       <button
         type="button"
         onClick={onSignIn}
-        title="ورود با حساب گوگل"
+        title="ورود به حساب کاربری"
         className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-900 text-xs font-extrabold transition-all active:scale-95"
       >
         <LogIn className="w-4 h-4" />
-        <span className="hidden sm:inline">ورود با حساب گوگل</span>
+        <span className="hidden sm:inline">ورود به حساب</span>
         <span className="sm:hidden">ورود</span>
       </button>
     </div>

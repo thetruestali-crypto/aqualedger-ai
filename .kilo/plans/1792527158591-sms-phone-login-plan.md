@@ -1,5 +1,69 @@
 # افزودن ورود/ثبت‌نام با پیامک (SMS.ir) در کنار ورود با گوگل — AquaLedger AI
 
+## 0. وضعیت اجرا (۱۴۰۴-۰۷-۲۹) — T1…T11 اجرا شده
+
+همهٔ فایل‌های زیر در working tree موجود و با `npm run verify` (lint ✅ · 169 تست واحد در ۲۳ فایل ✅ ·
+build ✅) و Playwright (spec صفحهٔ ورود ✅) اعتبارسنجی شده‌اند:
+
+| بخش | فایل‌ها |
+|---|---|
+| داده | `supabase/migrations/0002_sms_auth.sql` |
+| سرور | `server/smsAuth.ts`، `server/sms.ts`، `server/supabaseAdmin.ts`، `server/auth.ts`، `server/rateLimit.ts` |
+| HTTP | `server.ts`، `netlify/functions/sms-request.ts`، `netlify/functions/sms-verify.ts` |
+| کلاینت | `src/lib/phone.ts`، `src/lib/supabase.ts`، `src/state/auth.tsx`، `src/components/LoginView.tsx`، `src/components/SmsLoginForm.tsx`، `src/components/AuthArea.tsx`، `src/components/Navbar.tsx` |
+| تست | `tests/unit/{phone,sms-client,sms-auth,sms-login-form,login-card,auth-area,supabase-client}.test.ts`، `tests/e2e-login/login-screen.spec.ts`، `playwright.login.config.ts` |
+| مستندات | `README.md`، `docs/DECISIONS.md` (D27–D32)، `docs/PLAN.md` (Phase 9)، `docs/ARD.md`، `.env.example` |
+
+### دو گام باقی‌مانده که باید توسط اپراتور انجام شود
+
+**۱) ساخت فایل `.env` محلی (gitignore است و هرگز commit نشود)** — محتوای پیشنهادی:
+
+```dotenv
+# Supabase (برای اینکه ورود پیامکی سشن واقعی صادر کند لازم است)
+SUPABASE_URL=""
+SUPABASE_ANON_KEY=""
+SUPABASE_SERVICE_ROLE_KEY=""
+VITE_SUPABASE_URL=""
+VITE_SUPABASE_ANON_KEY=""
+
+# SMS.ir (فقط سرور)
+SMSIR_API_KEY="<کلید پنل SMS.ir؛ این فایل ترکِ‌شده است، مقدار واقعی فقط در .env محلی و Netlify>"
+SMSIR_TEMPLATE_ID=""      # قالب پنل (پیشنهادی)؛ خالی => bulk
+SMSIR_SENDER=""           # خط ارسال bulk؛ خالی => کشف خودکار از /v1/line
+SMSIR_CODE_PARAM="Code"
+SMSIR_BASE_URL="https://api.sms.ir/v1"
+
+SMS_OTP_SECRET="<یک رشتهٔ تصادفی طولانی، یکسان در همهٔ محیط‌ها>"
+SMS_OTP_TTL_SECONDS="300"
+SMS_OTP_LENGTH="5"
+SMS_OTP_MAX_ATTEMPTS="3"
+SMS_OTP_RESEND_SECONDS="60"
+SMS_OTP_MAX_PER_HOUR_PER_PHONE="5"
+SMS_OTP_MAX_PER_HOUR_PER_IP="20"
+```
+
+> ⚠️ **کلید پنل در گفتگو به‌صورت متن آشکار منتشر شده است**: پیش از production آن را در پنل SMS.ir
+> **چرخش (rotate)** دهید و مقدار جدید را در Netlify (Site environment variables) و `.env` بگذارید.
+> مقدار هرگز نباید در فایل ترک‌شدهٔ مخزن (مثل همین سند) نوشته شود.
+> `IP Whitelist` پنل باید برای کلید Netlify **خاموش** باشد (IPهای Netlify پویا هستند).
+
+**۲) سخت‌گیری اختیاری یک assertion در `tests/unit/sms-auth.test.ts`** (برای حذف flake ناچیز ~۰.۰۶٪):
+به‌جای `expect(insert.code_hash).not.toContain(plainCode)` از بررسی قطعی HMAC استفاده شود:
+
+```ts
+expect(insert.code_hash).toBe(
+  createHmac('sha256', 'test-otp-secret').update(plainCode).digest('hex'),
+);
+expect(insert.code_hash).not.toBe(plainCode);
+```
+(به ابتدای فایل `import { createHmac } from 'node:crypto';` اضافه شود.)
+
+### گام‌های بعدی پس از تحویل
+
+1. در پنل Supabase: `Authentication → Providers → Phone → Enable` (و اجرای `0002_sms_auth.sql`).
+2. در Netlify: افزودن متغیرهای `SUPABASE_SERVICE_ROLE_KEY`، `SMSIR_API_KEY`، `SMS_OTP_SECRET`، `SMSIR_TEMPLATE_ID`.
+3. چک‌لیست پذیرش README (§ 5) روی دامنهٔ واقعی: ارسال کد، ورود، نمایش شماره در نوار بالا، ۴۰۱ بدون توکن.
+
 ## 1. هدف
 
 کاربر بتواند در صفحهٔ ورود انتخاب کند: **ورود با گوگل** (موجود) یا **ورود با شمارهٔ موبایل (پیامک)** (جدید).
@@ -252,11 +316,16 @@ SUPABASE_SERVICE_ROLE_KEY="YOUR_SUPABASE_SERVICE_ROLE_KEY"
 
 ## 7. اعتبارسنجی (Validation)
 
+**وضعیت:** گام‌های ۱–۳ و ۵ روی همین کد اجرا و سبز ثبت شده است (`docs/PLAN.md` § Phase 9 و `README.md`
+§ Verification: lint ✅ · ۱۶۹ تست واحد در ۲۳ فایل ✅ · build ✅ · Playwright: spec صفحهٔ ورود ✅).
+در آخرین نشست، اجرای مجدد `npm run lint/test/build` در سندباکس ممکن نبود (دسترسی bash فقط
+خواندنی بود)؛ بنابراین پس از اعمال گام ۰.۲ (ویرایش assertion) این سه دستور را دوباره اجرا کنید.
+
 1. `npm run lint` (tsc --noEmit) — بدون خطا
 2. `npm test` (vitest) — همهٔ تست‌های جدید و قدیمی سبز
 3. `npm run build` — بدون خطا
 4. `npm run dev` → `POST /api/auth/sms/request` با شمارهٔ تستی ⇒ ۲۰۰؛ بررسی لاگ سرویس (بدون چاپ کد)؛ `POST .../verify` با کد اشتباه ⇒ ۴۰۰؛ با کد درست ⇒ ۲۰۰ + توکن
-5. `npm run test:e2e` — سناریوهای موجود بدون regression (اختیاری: سناریوی صفحهٔ ورود)
+5. `npm run test:e2e` — سناریوهای موجود بدون regression؛ `npm run test:e2e:login` — صفحهٔ ورود
 6. سناریوی دستی: ورود با گوگل (بدون تغییر) · ورود با پیامک ⇒ باز شدن اپ ⇒ نوار بالا شماره را نشان دهد ⇒ داده‌های محلی جدا (`:memory:`/IndexedDB) ⇒ سهمیهٔ AI برای کاربر پیامکی هم اعمال شود
 
 ## 8. خارج از محدوده (Follow-up — در این تسک انجام نمی‌شود)

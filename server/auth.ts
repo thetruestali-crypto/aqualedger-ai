@@ -23,6 +23,14 @@ export function isSupabaseAuthConfigured(): boolean {
 }
 
 /**
+ * Service-role key: server-only, NEVER a VITE_ variable and never shipped to
+ * the browser. Used to mint sessions for phone (SMS) users.
+ */
+export function getServiceRoleKey(): string | undefined {
+  return process.env.SUPABASE_SERVICE_ROLE_KEY || undefined;
+}
+
+/**
  * Verify a Supabase access token via supabase.auth.getUser(token).
  * Transitional Phase-A behavior: when SUPABASE_URL/ANON_KEY are NOT set
  * (local dev before the Auth phase lands), any non-empty token is accepted
@@ -45,3 +53,27 @@ export async function verifySupabaseToken(
 }
 
 export const UNAUTHORIZED_ERROR = 'برای استفاده از هوش مصنوعی وارد حساب کاربری شوید.';
+
+export interface AuthCheckResult {
+  /** True when the caller may use the endpoint. */
+  ok: boolean;
+  /** The verified token, or null when Supabase is not configured (fail open). */
+  token: string | null;
+}
+
+/**
+ * Auth gate for the AI endpoints (Express + Netlify, identical behavior).
+ * When Supabase is NOT configured the check fails open, so local dev and the
+ * offline flow keep working; once Supabase is configured a missing or invalid
+ * token is rejected with 401.
+ */
+export async function checkAuthHeader(
+  authHeader: string | null | undefined,
+): Promise<AuthCheckResult> {
+  if (!isSupabaseAuthConfigured()) return { ok: true, token: null };
+  const token = getBearerToken(authHeader);
+  if (!token) return { ok: false, token: null };
+  const verified = await verifySupabaseToken(token);
+  if (!verified.ok) return { ok: false, token: null };
+  return { ok: true, token };
+}
