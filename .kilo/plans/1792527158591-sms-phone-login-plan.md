@@ -47,8 +47,9 @@ SMS_OTP_MAX_PER_HOUR_PER_IP="20"
 > مقدار هرگز نباید در فایل ترک‌شدهٔ مخزن (مثل همین سند) نوشته شود.
 > `IP Whitelist` پنل باید برای کلید Netlify **خاموش** باشد (IPهای Netlify پویا هستند).
 
-**۲) سخت‌گیری اختیاری یک assertion در `tests/unit/sms-auth.test.ts`** (برای حذف flake ناچیز ~۰.۰۶٪):
-به‌جای `expect(insert.code_hash).not.toContain(plainCode)` از بررسی قطعی HMAC استفاده شود:
+**۲) سخت‌گیری اختیاری یک assertion در `tests/unit/sms-auth.test.ts`** — ✅ انجام شد
+(برای حذف flake ناچیز ~۰.۰۶٪): به‌جای `expect(insert.code_hash).not.toContain(plainCode)`
+از بررسی قطعی HMAC استفاده می‌شود:
 
 ```ts
 expect(insert.code_hash).toBe(
@@ -56,7 +57,7 @@ expect(insert.code_hash).toBe(
 );
 expect(insert.code_hash).not.toBe(plainCode);
 ```
-(به ابتدای فایل `import { createHmac } from 'node:crypto';` اضافه شود.)
+(به ابتدای فایل `import { createHmac } from 'node:crypto';` اضافه شد.)
 
 ### گام‌های بعدی پس از تحویل
 
