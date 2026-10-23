@@ -180,7 +180,50 @@ export const analyzeAudioRequestSchema = z.object({
     .object({
       bossName: z.string().max(200).optional(),
       companyName: z.string().max(200).optional(),
+      /** Client-computed median of recent totals; server flags >10x as suspicious. */
       typicalAmount: z.number().int().positive().optional(),
     })
     .optional(),
+});
+
+// --- AI tool call schemas (function calling) ---
+
+export const toolCallSchema = z.object({
+  name: z.string().min(1).max(100),
+  arguments: z.record(z.string(), z.unknown()),
+});
+
+export const toolCallRequestSchema = z.object({
+  text: z.string().trim().min(1, 'متن ورودی الزامی است.').max(2000).optional(),
+  context: z
+    .object({
+      bossName: z.string().max(200).optional(),
+      companyName: z.string().max(200).optional(),
+      typicalAmount: z.number().int().positive().optional(),
+    })
+    .optional(),
+  /** Second phase of two-phase confirmation: send back the tool call to execute. */
+  toolCall: toolCallSchema.optional(),
+  confirmed: z.boolean().optional(),
+  /** Current store snapshot, needed by handlers to validate against live state. */
+  storeSnapshot: z
+    .object({
+      transactions: z.array(z.any()),
+      clients: z.array(z.any()),
+      parts: z.array(z.any()),
+      settings: z.any(),
+      serviceLogs: z.array(z.any()),
+    })
+    .optional(),
+}).refine((data) => data.text || data.toolCall, {
+  message: 'متن ورودی یا فراخوانی تابع الزامی است.',
+});
+
+export const toolResultSchema = z.object({
+  status: z.enum(['ok', 'pending_confirmation', 'error']),
+  toolCall: toolCallSchema.optional(),
+  summary: z.string().max(2000).optional(),
+  result: z.unknown().optional(),
+  error: z.string().max(500).optional(),
+  warnings: z.array(z.string().max(300)).optional(),
 });
