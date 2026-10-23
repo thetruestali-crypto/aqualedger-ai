@@ -78,9 +78,20 @@ function moneyFromArg(value: unknown, fallback = 0): number {
     const amounts = extractTomanAmounts(value);
     if (amounts.length > 0) return amounts[0].value;
     // Normalize Persian/Arabic digits before parseFloat.
-    const normalized = value.replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+    const normalized = value.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
     const n = parseFloat(normalized);
     if (!Number.isNaN(n)) return n < 1000 ? Math.round(n * 1000) : Math.round(n);
+  }
+  return fallback;
+}
+
+/** Parse a quantity (e.g. "۵" -> 5) without the money ×1000 rule. */
+function parseQuantity(value: unknown, fallback = 0): number {
+  if (typeof value === 'number') return Math.floor(value);
+  if (typeof value === 'string') {
+    const normalized = value.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+    const n = parseFloat(normalized);
+    if (!Number.isNaN(n)) return Math.floor(n);
   }
   return fallback;
 }
@@ -585,7 +596,7 @@ async function handleRestockPart(
   }
   const partName = (parsed.data.partName as string) || '';
   const quantityRaw = (parsed.data.quantity as string) || '';
-  const quantity = moneyFromArg(quantityRaw, 0);
+  const quantity = parseQuantity(quantityRaw, 0);
   if (!partName || quantity <= 0) {
     return {
       status: 'error',
@@ -660,7 +671,7 @@ async function handleDeductStock(
   }
   const lines = items.map((it) => ({
     name: it.partName,
-    qty: moneyFromArg(it.quantity, 0),
+    qty: parseQuantity(it.quantity, 0),
   }));
   const plan = await import('../src/domain/inventory').then((m) =>
     m.planStockDecrement(snap.parts, lines)
