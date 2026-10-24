@@ -2,7 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { analyzeWithGemini, analyzeAudioWithGemini, hasGeminiKey } from './server/gemini';
+import { analyzeWithGemini, analyzeAudioWithGemini, analyzeToolCall, hasGeminiKey } from './server/gemini';
 import { fallbackAnalyzeTransaction } from './server/fallbackParser';
 import { finalizeAnalysis } from './server/suspicion';
 import { aiRateLimiter, smsRateLimiter } from './server/rateLimit';
@@ -12,7 +12,9 @@ import { requestSmsCode, verifySmsCode } from './server/smsAuth';
 import {
   analyzeTransactionRequestSchema,
   analyzeAudioRequestSchema,
+  toolCallRequestSchema,
 } from './src/types/schemas';
+import { TOOL_REGISTRY, getToolDefinition, type StoreSnapshot } from './server/toolRegistry';
 
 dotenv.config();
 
@@ -26,6 +28,7 @@ const port = parseInt(process.env.PORT || '3000', 10);
 app.use('/api/analyze-transaction', express.json({ limit: '100kb' }));
 app.use('/api/analyze-audio', express.json({ limit: '15mb' }));
 app.use('/api/auth/sms', express.json({ limit: '10kb' }));
+app.use('/api/ai-tool-call', express.json({ limit: '100kb' }));
 app.use(express.json({ limit: '100kb' }));
 
 /**
@@ -129,6 +132,148 @@ app.post('/api/analyze-audio', aiRateLimiter, async (req, res) => {
     });
   }
 });
+
+// AI Tool Call endpoint: natural language → tool execution
+app.post('/api/ai-tool-call', aiRateLimiter, async (req, res) => {
+  const auth = await authenticate(req, res);
+  if (!auth.ok) return;
+
+  const parsed = toolCallRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'متن ورودی الزامی است.' });
+  }
+  if (auth.token) {
+    const usage = await checkAiUsage(auth.token);
+    if (!usage.allowed) {
+      return res.status(429).json({ error: AI_QUOTA_ERROR });
+    }
+  }
+
+  const { text, context, toolCall, confirmed, storeSnapshot } = parsed.data;
+  const snap: StoreSnapshot = (storeSnapshot as StoreSnapshot) ?? {
+    transactions: [],
+    clients: [],
+    parts: [],
+    settings: { companyName: '', bossName: '', bossPhone: '', technicianName: '', companyLogo: '', monthlyBaseSalary: 0, salaryPaymentDay: 25, overtimeHourlyRate: 0, insuranceDeduction: 0, autoAccrueSalary: false },
+    serviceLogs: [],
+  };
+
+  // Phase 1: no toolCall yet → ask Gemini to extract one from the text.
+  if (!toolCall) {
+    const inputText = text || '';
+    if (!inputText) {
+      return res.status(400).json({ error: 'متن ورودی الزامی است.' });
+    }
+    if (!hasGeminiKey()) {
+      return res.status(503).json({
+        error: 'سرویس herramienta فعال نیست (کلید هوش مصنوعی تنظیم نشده). لطفاً متن را به صورت دستی وارد کنید.',
+      });
+    }
+    try {
+      const extracted = await analyzeToolCall(inputText, context ?? {});
+      if (!extracted || !extracted.name) {
+        return res.status(400).json({ error: 'امکان تشخیص تابع مناسب از متن پیدا نشد. لطفاً مشخصات را به وضوح بگویید.' });
+      }
+      const def = getToolDefinition(extracted.name);
+      if (!def) {
+        return res.status(400).json({ error: `تابع «${extracted.name}» پشتیبانی نمی‌شود.` });
+      }
+      // Validate arguments against tool schema.
+      const argParse = def.inputSchema.safeParse(extracted.arguments);
+      if (!argParse.success) {
+        return res.status(400).json({ error: 'آرگومان‌های تابع معتبر نیستند.', details: argParse.error.flatten() });
+      }
+      // If confirmation required, return pending without executing.
+      if (def.requiresConfirmation && !confirmed) {
+        const summary = await buildConfirmationSummary(def.name, extracted.arguments, snap);
+        return res.json({
+          status: 'pending_confirmation',
+          toolCall: { name: extracted.name, arguments: argParse.data },
+          summary,
+        });
+      }
+      // No confirmation needed (or already confirmed) → execute.
+      const result = await def.handler(argParse.data as Record<string, unknown>, context ?? {}, snap);
+      return res.json(result);
+    } catch (error) {
+      console.error('AI tool call extraction failed:', error);
+      return res.status(500).json({ error: 'خطا در استخراج تابع از متن. لطفاً دوباره تلاش کنید.' });
+    }
+  }
+
+  // Phase 2: toolCall provided with confirmed=true → execute.
+  if (toolCall && confirmed) {
+    const def = getToolDefinition(toolCall.name);
+    if (!def) {
+      return res.status(400).json({ error: `تابع «${toolCall.name}» پشتیبانی نمی‌شود.` });
+    }
+    const argParse = def.inputSchema.safeParse(toolCall.arguments);
+    if (!argParse.success) {
+      return res.status(400).json({ error: 'آرگومان‌های تابع معتبر نیستند.', details: argParse.error.flatten() });
+    }
+    try {
+      const result = await def.handler(argParse.data as Record<string, unknown>, context ?? {}, snap);
+      return res.json(result);
+    } catch (error) {
+      console.error('AI tool call execution failed:', error);
+      return res.status(500).json({ error: 'خطا در اجرای تابع. لطفاً دوباره تلاش کنید.' });
+    }
+  }
+
+  // toolCall provided but not confirmed → return pending.
+  if (toolCall && !confirmed) {
+    const def = getToolDefinition(toolCall.name);
+    if (!def) {
+      return res.status(400).json({ error: `تابع «${toolCall.name}» پشتیبانی نمی‌شود.` });
+    }
+    const summary = await buildConfirmationSummary(def.name, toolCall.arguments, snap);
+    return res.json({
+      status: 'pending_confirmation',
+      toolCall,
+      summary,
+    });
+  }
+
+  return res.status(400).json({ error: 'درخواست نامعتبر است.' });
+});
+
+// Helper: build Persian confirmation summary for a tool call.
+async function buildConfirmationSummary(
+  toolName: string,
+  args: Record<string, unknown>,
+  snap: StoreSnapshot
+): Promise<string> {
+  const def = getToolDefinition(toolName);
+  if (!def) return 'تابع ناشناخته.';
+  switch (toolName) {
+    case 'recordBossAdvance':
+      return `تایید دریافت ${args.amount} تومان مساعده از رئیس/شرکت؟`;
+    case 'recordSalaryPayout':
+      return `تایید واریز ${args.amount} تومان حقوق توسط شرکت؟`;
+    case 'recordCompanyExpense':
+      return `تایید خرید ${args.amount} تومانی از جیب برای شرکت${args.item ? ` (${args.item})` : ''}؟`;
+    case 'recordCustomerPayment': {
+      const cash = args.cashAmount || 0;
+      const pos = args.posAmount || 0;
+      const total = Number(cash) + Number(pos);
+      return `تایید دریافت ${total} تومان از ${args.customerName || 'مشتری'}؟`;
+    }
+    case 'settleClientInvoice':
+      return `تایید تسویه ${args.amount} تومان بدهی ${args.customerName || 'مشتری'}؟`;
+    case 'createCustomerProfile':
+      return `تایید ایجاد پرونده مشتری «${args.name || 'نامشخص'}»؟`;
+    case 'appendCustomerNote':
+      return `تایید افزودن یادداشت به پرونده ${args.customerName || 'مشتری'}؟`;
+    case 'restockPart':
+      return `تایید افزودن ${args.quantity} عدد «${args.partName}» به انبار؟`;
+    case 'deductStock':
+      return `تایید کسر موجودی قطعات برای${args.jobLocation ? ` ${args.jobLocation}` : ''}؟`;
+    case 'scheduleServiceReminder':
+      return `تایید ثبت یادآور «${args.serviceType}» برای ${args.customerName || 'مشتری'} در هر ${args.intervalMonths || 6} ماه؟`;
+    default:
+      return `تایید اجرای «${toolName}»؟`;
+  }
+}
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -133,6 +133,47 @@ const RESPONSE_SCHEMA = {
   ],
 };
 
+// --- AI tool calling schema ---
+
+export const TOOL_CALL_SYSTEM_INSTRUCTION = `تو یک دستیار هوش مصنوعی برای برنامه AquaLedger هستی.
+وظیفه تو: متن کاربر را تحلیل و یکی از توابع زیر را انتخاب کرده، نام تابع و آرگومان‌های آن را برگرداند.
+
+토ابع موجود:
+- recordBossAdvance: دریافت مساعده/علیه‌الحساب از رئیس. آرگومان‌ها: amount (مبلغ به تومان)، date (تاریخ)، description (توضیحات)
+- recordSalaryPayout: واریز حقوق. آرگومان‌ها: amount، date، description
+- recordCompanyExpense: خرید از جیب برای شرکت. آرگومان‌ها: amount، item (نام کالا)، date، description
+- recordCustomerPayment: دریافت وجه از مشتری. آرگومان‌ها: customerName (نام مشتری)، cashAmount (مبلغ نقد)، posAmount (مبلغ پایس)، reason (دلیل)، date
+- settleClientInvoice: تسویه بدهی مشتری. آرگومان‌ها: customerName، amount، date
+- createCustomerProfile: ایجاد پرونده مشتری. آرگومان‌ها: name، phone، address، deviceModel
+- appendCustomerNote: یادداشت به پرونده مشتری. آرگومان‌ها: customerName، note
+- restockPart: افزودن موجودی به انبار. آرگومان‌ها: partName، quantity، purchasePrice، sellPrice، category
+- deductStock: کسر موجودی از انبار. آرگومان‌ها: jobLocation، items (لیستی با partName و quantity)
+- checkStockLevel: استعلام موجودی. آرگومان‌ها: itemName
+- getFinancialReport: گزارش مالی. آرگومان‌ها: period (day/week/month)، count
+- getBossBalance: تراز رئیس. آرگومان‌ها: هیچ‌کدام
+- scheduleServiceReminder: یادآور سرویس. آرگومان‌ها: customerName، serviceType، intervalMonths
+
+قوانین:
+- مبالغ را به عدد صحیح تومان تبدیل کن (قوانین اعداد فارسی را رعایت کن).
+- اگر می‌بینید کاربر تایید نهایی را نداده، همچنان تابع را برگرداند (تایید در مرحله بعد انجام می‌شود).
+- فقط یک تابع را برگرداند.
+- خروجی به فرمت JSON با کلیدهای name و arguments برگردانده شود.`;
+
+export const TOOL_CALL_RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    name: {
+      type: Type.STRING,
+      description: 'نام تابع مورد اجرا',
+    },
+    arguments: {
+      type: Type.OBJECT,
+      description: 'آرگومان‌های تابع',
+    },
+  },
+  required: ['name', 'arguments'],
+};
+
 const MAX_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 600;
 
@@ -225,6 +266,44 @@ export async function analyzeAudioWithGemini(
       const validated = aiAnalysisResultSchema.safeParse(parsed);
       if (!validated.success) throw new Error('Gemini output failed zod validation');
       return validated.data as Record<string, unknown>;
+    } catch (err) {
+      lastError = err;
+      if (attempt < MAX_ATTEMPTS) await sleep(RETRY_DELAY_MS);
+    }
+  }
+  throw lastError;
+}
+
+/** Extract a tool call from Persian user text using Gemini. */
+export async function analyzeToolCall(
+  text: string,
+  context: Record<string, unknown> = {},
+  timeoutMs: number = GEMINI_TIMEOUT_MS,
+): Promise<{ name: string; arguments: Record<string, unknown> } | null> {
+  const ai = getClient();
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await withTimeout(
+        ai.models.generateContent({
+          model: MODEL,
+          contents: `متن ورودی کاربر:\n"${text}"\n\nاطلاعات کمکی زمینه: ${JSON.stringify(context)}`,
+          config: {
+            systemInstruction: TOOL_CALL_SYSTEM_INSTRUCTION,
+            responseMimeType: 'application/json',
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            responseSchema: TOOL_CALL_RESPONSE_SCHEMA as any,
+          },
+        }),
+        timeoutMs,
+      );
+      const raw = response?.text;
+      if (!raw) throw new Error('Empty Gemini response');
+      const parsed: unknown = JSON.parse(raw.trim());
+      if (!parsed || typeof parsed !== 'object' || !('name' in parsed) || !('arguments' in parsed)) {
+        throw new Error('Gemini output missing name/arguments');
+      }
+      return { name: String((parsed as { name: unknown }).name), arguments: (parsed as { arguments: unknown }).arguments as Record<string, unknown> };
     } catch (err) {
       lastError = err;
       if (attempt < MAX_ATTEMPTS) await sleep(RETRY_DELAY_MS);
